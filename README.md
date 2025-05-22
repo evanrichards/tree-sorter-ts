@@ -1,232 +1,219 @@
-# Tree-Sorter-TS: TypeScript Code Sorting Utility
+# tree-sorter-ts
 
-## Overview
-
-A Go CLI utility that automatically sorts TypeScript arrays and object literals marked with special comments, while preserving formatting, comments, and semantic structure using Tree-sitter parsing.
-
-## Core Functionality
-
-The tool scans TypeScript files for the magic comment `/** tree-sorter-ts: keep-sorted **/` and sorts the contents of the immediately following object literal by property keys.
-
-### Example Usage
-
-**Basic object sorting:**
-
-```typescript
-const config = {
-  /** tree-sorter-ts: keep-sorted **/
-  zebra: "value1",
-  alpha: "value2", // critical setting
-  beta: "value3",
-};
-```
-
-**Output:**
-
-```typescript
-const config = {
-  /** tree-sorter-ts: keep-sorted **/
-  alpha: "value2", // critical setting
-  beta: "value3",
-  zebra: "value1",
-};
-```
-
-**Block comments above keys:**
-
-```typescript
-const settings = {
-  /** tree-sorter-ts: keep-sorted **/
-  zebra: false,
-  /**
-   * This is a critical configuration
-   * that affects the entire system
-   */
-  alpha: true,
-  beta: "test", // inline comment
-};
-```
-
-**Output:**
-
-```typescript
-const settings = {
-  /** tree-sorter-ts: keep-sorted **/
-  /**
-   * This is a critical configuration
-   * that affects the entire system
-   */
-  alpha: true,
-  beta: "test", // inline comment
-  zebra: false,
-};
-```
-
-**Computed property keys (enum references):**
-
-```typescript
-const handlers = {
-  /** tree-sorter-ts: keep-sorted **/
-  [StatusEnum.PENDING]: handlePending,
-  [StatusEnum.ACTIVE]: handleActive, // primary handler
-  [StatusEnum.COMPLETED]: handleCompleted,
-};
-```
-
-**Output:**
-
-```typescript
-const handlers = {
-  /** tree-sorter-ts: keep-sorted **/
-  [StatusEnum.ACTIVE]: handleActive, // primary handler
-  [StatusEnum.COMPLETED]: handleCompleted,
-  [StatusEnum.PENDING]: handlePending,
-};
-```
-
-**Unattached comments (moved to top):**
-
-```typescript
-const config = {
-  /** tree-sorter-ts: keep-sorted **/
-  zebra: "value1",
-  alpha: "value2", // attached comment
-
-  /**
-   * This comment is not attached to any property
-   */
-
-  beta: "value3",
-};
-```
-
-**Output:**
-
-```typescript
-const config = {
-  /** tree-sorter-ts: keep-sorted **/
-  /**
-   * This comment is not attached to any property
-   */
-
-  alpha: "value2", // attached comment
-  beta: "value3",
-  zebra: "value1",
-};
-```
-
-## Technical Requirements
-
-### Tree-sitter Integration
-
-- Use `github.com/smacker/go-tree-sitter` with TypeScript grammar
-- Parse files into AST to preserve exact formatting and comments
-- Query for comment nodes containing the magic string
-- Identify the subsequent array/object literal to sort
-
-### Sorting Logic
-
-- **Objects**: Sort by property keys (alphabetical)
-- **String Keys**: Standard alphabetical sort (`"alpha"`, `"beta"`, `"zebra"`)
-- **Computed Keys**: Sort by the string representation of the computed expression (`[SomeEnum.ACTIVE]` → `"SomeEnum.ACTIVE"`)
-- **Comment Preservation**: Maintain inline and block comments with their associated properties during sorting
-- **Unattached Comments**: Comments not directly associated with a property are moved to the top of the object (after the magic comment)
-
-### File Processing
-
-- Walk directory trees recursively
-- Process `.ts` and `.tsx` files
-- Modify files in-place or output to specified directory
-- Handle multiple magic comments per file
-
-## Implementation Approach
-
-Based on the provided Tree-sitter examples, the implementation should:
-
-1. **File Discovery**: Recursively walk directories for TypeScript files
-2. **AST Parsing**: Use Tree-sitter to parse each file into an AST
-3. **Query Execution**: Write Tree-sitter queries to find magic comments and associated structures
-4. **Node Manipulation**: Extract, sort, and reconstruct the relevant AST nodes
-5. **Code Generation**: Convert the modified AST back to source code
-
-### Key Tree-sitter Queries Needed
-
-```scheme
-;; Find magic comments
-(comment) @magic-comment
-(#match? @magic-comment "tree-sorter-ts: keep-sorted")
-
-;; Find object literals following magic comments
-(object
-  (pair) @property)*
-
-;; Handle computed property names
-(object
-  (pair
-    key: (computed_property_name) @computed-key
-    value: (_) @value
-  )
-) @property
-
-;; Handle regular property names with comments
-(object
-  (pair
-    key: (property_identifier) @key
-    value: (_) @value
-  )
-) @property
-```
-
-## CLI Interface
-
-```bash
-tree-sorter-ts [flags] <path>
-
-Flags:
-  --check         Check if files are sorted (exit 1 if not)
-  --write         Write changes to files (default: dry-run)
-  --recursive     Process directories recursively (default: true)
-  --extensions    File extensions to process (default: .ts,.tsx)
-  --workers       Number of parallel workers (default: number of CPUs, max 8)
-```
-
-## Performance
-
-The tool processes files in parallel for optimal performance on large codebases:
-
-- Uses a worker pool pattern with goroutines
-- Default worker count is the number of CPU cores (max 8)
-- Parser instances are pooled and reused
-- Files are pre-filtered using regex before parsing for efficiency
+A Go CLI tool that automatically sorts TypeScript object literals marked with special comments. It uses Tree-sitter for accurate AST parsing while preserving exact formatting, comments, and structure.
 
 ## Features
 
-- ✅ Supports multi-line property values (template literals, multi-line strings)
-- ✅ Handles computed property keys (e.g., `[EnumValue.KEY]`)
-- ✅ Preserves all comments and formatting
-- ✅ Works with both `/** tree-sorter-ts: keep-sorted **/` and `/** tree-sorter-ts: keep-sorted */` formats
-- ✅ Processes files in parallel for performance
+- 🔧 Sorts object properties alphabetically
+- 🎯 Only touches objects marked with `/** tree-sorter-ts: keep-sorted **/`
+- 💬 Preserves all comments (inline and block)
+- 🔑 Handles computed property keys like `[EnumName.VALUE]`
+- 📁 Processes files in parallel for performance
+- ✨ Supports TypeScript and TSX files
+- 🔍 Dry-run mode by default (see changes before applying)
+- ✅ Check mode for CI/CD pipelines
+- 📐 Optional `with-new-line` formatting for extra spacing
 
-## Error Handling
+## Installation
 
-- Graceful handling of parse errors (skip malformed files with warnings)
-- Preserve original files on sorting failures
-- Clear error messages for invalid magic comment placement
-- Validation that magic comments precede sortable structures
+### Using `go install`
+```bash
+# Install the latest version
+go install github.com/evanrichards/tree-sorter-ts/cmd/tree-sorter-ts@latest
 
-## Success Criteria
+# Run the installed binary
+tree-sorter-ts --help
+```
 
-1. Correctly identifies and sorts marked object literals by property keys
-2. Preserves all comments and formatting outside sorted regions
-3. Maintains comment associations with properties during sorting (both inline and block comments)
-4. Handles computed property keys (enum references, expressions)
-5. Handles edge cases (empty objects, single properties, nested objects)
-6. Provides clear feedback on processed files and any issues
+### Using `go run`
+```bash
+# Run directly without installation
+go run github.com/evanrichards/tree-sorter-ts@latest --help
+```
 
-## Dependencies
+### Building from source
+```bash
+git clone https://github.com/evanrichards/tree-sorter-ts.git
+cd tree-sorter-ts
+make build
 
-- `github.com/smacker/go-tree-sitter` - Core Tree-sitter bindings
-- `github.com/smacker/go-tree-sitter/typescript/typescript` - TypeScript grammar
-- Standard library for file system operations and CLI
+# Binary will be in ./bin/tree-sorter-ts
+./bin/tree-sorter-ts --help
+```
 
-This utility will be particularly valuable for maintaining consistent ordering in configuration objects, import/export lists, and other structured data in TypeScript codebases.
+## Usage
+
+### Basic usage
+```bash
+# Dry-run mode (default) - shows what would change
+tree-sorter-ts src/
+
+# Write changes to files
+tree-sorter-ts --write src/
+
+# Check mode - exits with code 1 if files need sorting
+tree-sorter-ts --check src/
+
+# Process a single file
+tree-sorter-ts --write src/config.ts
+
+# Process only .ts files (not .tsx)
+tree-sorter-ts --extensions=".ts" src/
+```
+
+### Marking objects for sorting
+
+Add the magic comment before any object literal you want to keep sorted:
+
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted **/
+  zebra: "last",
+  alpha: "first", 
+  beta: "second",
+};
+```
+
+After running with `--write`, it becomes:
+
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted **/
+  alpha: "first",
+  beta: "second", 
+  zebra: "last",
+};
+```
+
+### Advanced: with-new-line option
+
+For objects that need extra spacing between properties:
+
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted with-new-line **/
+  zebra: "last",
+  alpha: "first",
+  beta: "second",
+};
+```
+
+After sorting:
+
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted with-new-line **/
+  alpha: "first",
+
+  beta: "second",
+
+  zebra: "last",
+};
+```
+
+## Flags
+
+- `--check` - Check if files are sorted (exit 1 if not)
+- `--write` - Write changes to files (default: dry-run)
+- `--recursive` - Process directories recursively (default: true)
+- `--extensions` - File extensions to process (default: ".ts,.tsx")
+- `--workers` - Number of parallel workers (default: number of CPUs)
+
+## Examples
+
+### CI/CD Integration
+```yaml
+# GitHub Actions example
+- name: Check TypeScript objects are sorted
+  run: |
+    go run github.com/evanrichards/tree-sorter-ts@latest --check src/
+```
+
+### Pre-commit Hook
+```bash
+#!/bin/sh
+# .git/hooks/pre-commit
+tree-sorter-ts --write $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$')
+```
+
+### With Make
+```bash
+# Run on all TypeScript files
+make run
+
+# Check mode
+make check
+
+# Run tests
+make test
+```
+
+## Development
+
+### Project Structure
+```
+tree-sorter-ts/
+├── cmd/tree-sorter-ts/     # CLI entry point
+├── internal/
+│   ├── app/                # Application logic
+│   ├── processor/          # Core sorting logic
+│   └── fileutil/           # File utilities
+├── testdata/fixtures/      # Test files
+└── main.go                 # Root entry (for backward compatibility)
+```
+
+### Building and Testing
+```bash
+# Build the binary
+make build
+
+# Run tests
+make test
+
+# Run benchmarks
+make bench
+
+# Install locally
+make install
+```
+
+## TODO
+
+- [ ] **Array sorting support** - Sort arrays with a `key` flag to sort objects by a specific path
+  ```typescript
+  const users = [
+    /** tree-sorter-ts: keep-sorted key="name" **/
+    { name: "Zoe", age: 30 },
+    { name: "Alice", age: 25 },
+    { name: "Bob", age: 28 },
+  ];
+  ```
+
+- [ ] **Section sorting** - Support `start-sort` and `end-sort` comments for sorting subsections
+  ```typescript
+  const config = {
+    // Critical settings - do not sort
+    apiUrl: "https://api.example.com",
+    timeout: 5000,
+    
+    /** tree-sorter-ts: start-sort **/
+    featureFlags: {
+      enableAnalytics: true,
+      enableChat: false,
+      enableNotifications: true,
+    },
+    permissions: {
+      canEdit: true,
+      canDelete: false,
+      canView: true,
+    },
+    /** tree-sorter-ts: end-sort **/
+    
+    // Debug settings - must remain last
+    debug: true,
+  };
+  ```
+
+## License
+
+MIT
