@@ -1,4 +1,4 @@
-module tree-sorter-ts
+module github.com/evanrichards/tree-sorter-ts
 
 go 1.21
 
