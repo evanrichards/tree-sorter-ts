@@ -11,6 +11,11 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
+// SortConfig contains configuration options from the magic comment
+type SortConfig struct {
+	WithNewLine bool
+}
+
 // ProcessResult contains the result of processing a file
 type ProcessResult struct {
 	Changed         bool
@@ -21,7 +26,7 @@ type ProcessResult struct {
 // ProcessFileAST processes a file using full AST analysis
 func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 	result := ProcessResult{}
-	
+
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return result, fmt.Errorf("reading file: %w", err)
@@ -42,7 +47,7 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 	}
 
 	rootNode := tree.RootNode()
-	
+
 	// Find all objects containing magic comments
 	objects := findObjectsWithMagicCommentsAST(rootNode, content)
 	if len(objects) == 0 {
@@ -75,7 +80,7 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 			if wasChanged {
 				start := obj.object.StartByte()
 				end := obj.object.EndByte()
-				
+
 				before := newContent[:start]
 				after := newContent[end:]
 				newContent = append(append(before, sortedContent...), after...)
@@ -84,7 +89,7 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 	}
 
 	if result.Changed && config.Write {
-		err = os.WriteFile(filePath, newContent, 0644)
+		err = os.WriteFile(filePath, newContent, 0o600)
 		if err != nil {
 			return result, fmt.Errorf("writing file: %w", err)
 		}
@@ -97,11 +102,42 @@ type objectWithMagicComment struct {
 	object       *sitter.Node
 	magicComment *sitter.Node
 	magicIndex   int // Index of magic comment in children
+	sortConfig   SortConfig
+}
+
+func parseSortConfig(commentText []byte) SortConfig {
+	config := SortConfig{}
+
+	// Extract configuration from magic comment
+	text := string(commentText)
+	// Look for the pattern inside the comment
+	if strings.Contains(text, "tree-sorter-ts:") && strings.Contains(text, "keep-sorted") {
+		// Find the part after "keep-sorted"
+		parts := strings.Split(text, "keep-sorted")
+		if len(parts) > 1 {
+			// Extract the configuration part before the closing */
+			configPart := parts[1]
+			endIdx := strings.Index(configPart, "*/")
+			if endIdx > 0 {
+				configPart = configPart[:endIdx]
+			}
+
+			// Parse configuration options
+			options := strings.Fields(configPart)
+			for _, opt := range options {
+				if opt == "with-new-line" {
+					config.WithNewLine = true
+				}
+			}
+		}
+	}
+
+	return config
 }
 
 func findObjectsWithMagicCommentsAST(node *sitter.Node, content []byte) []objectWithMagicComment {
 	var results []objectWithMagicComment
-	
+
 	var traverse func(*sitter.Node)
 	traverse = func(n *sitter.Node) {
 		if n.Type() == "object" {
@@ -115,48 +151,49 @@ func findObjectsWithMagicCommentsAST(node *sitter.Node, content []byte) []object
 							object:       n,
 							magicComment: child,
 							magicIndex:   i,
+							sortConfig:   parseSortConfig(text),
 						})
 						break
 					}
 				}
 			}
 		}
-		
+
 		for i := 0; i < int(n.ChildCount()); i++ {
 			traverse(n.Child(i))
 		}
 	}
-	
+
 	traverse(node)
 	return results
 }
 
 type astProperty struct {
-	keyNode      *sitter.Node
-	valueNode    *sitter.Node
-	pairNode     *sitter.Node
-	key          string
-	beforeNodes  []*sitter.Node // Comments before this property
-	afterNode    *sitter.Node   // Inline comment after property
-	hasComma     bool
-	commaNode    *sitter.Node
+	keyNode     *sitter.Node
+	valueNode   *sitter.Node
+	pairNode    *sitter.Node
+	key         string
+	beforeNodes []*sitter.Node // Comments before this property
+	afterNode   *sitter.Node   // Inline comment after property
+	hasComma    bool
+	commaNode   *sitter.Node
 }
 
 func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 	// Extract properties after magic comment
 	properties := extractPropertiesAST(obj, content)
-	
+
 	if len(properties) <= 1 {
 		return nil, false
 	}
-	
+
 	// Check if already sorted
 	sorted := make([]*astProperty, len(properties))
 	copy(sorted, properties)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].key < sorted[j].key
 	})
-	
+
 	alreadySorted := true
 	for i := range properties {
 		if properties[i].key != sorted[i].key {
@@ -164,11 +201,11 @@ func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 			break
 		}
 	}
-	
+
 	if alreadySorted {
 		return nil, false
 	}
-	
+
 	// Reconstruct the object with sorted properties
 	return reconstructObjectAST(obj, sorted, content), true
 }
@@ -176,72 +213,74 @@ func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 func extractPropertiesAST(obj objectWithMagicComment, content []byte) []*astProperty {
 	var properties []*astProperty
 	var pendingComments []*sitter.Node
-	
+
 	// Start after magic comment
 	startIdx := obj.magicIndex + 1
-	
+
 	for i := startIdx; i < int(obj.object.ChildCount()); i++ {
 		child := obj.object.Child(i)
-		
+
 		switch child.Type() {
 		case "comment":
 			// Accumulate comments
 			pendingComments = append(pendingComments, child)
-			
+
 		case "pair":
 			prop := &astProperty{
 				pairNode:    child,
 				beforeNodes: pendingComments,
 			}
-			
+
 			// Extract key and value
 			keyNode := child.ChildByFieldName("key")
 			valueNode := child.ChildByFieldName("value")
-			
+
 			if keyNode != nil {
 				prop.keyNode = keyNode
 				prop.key = extractKeyAST(keyNode, content)
 			}
-			
+
 			if valueNode != nil {
 				prop.valueNode = valueNode
 			}
-			
+
 			// Check if followed by comma and/or inline comment
 			j := i + 1
-			for j < int(obj.object.ChildCount()) {
+			continueLoop := true
+			for j < int(obj.object.ChildCount()) && continueLoop {
 				next := obj.object.Child(j)
-				if next.Type() == "," {
+				switch next.Type() {
+				case ",":
 					prop.hasComma = true
 					prop.commaNode = next
 					j++
-				} else if next.Type() == "comment" {
+				case "comment":
 					// Check if it's on the same line
 					if next.StartPoint().Row == child.EndPoint().Row {
 						prop.afterNode = next
 						j++
 					} else {
-						break
+						continueLoop = false
 					}
-				} else {
-					break
+				default:
+					continueLoop = false
 				}
 			}
 			i = j - 1 // Update loop counter to skip processed nodes
-			
+
 			properties = append(properties, prop)
 			pendingComments = nil // Reset comments
-			
+
 		case ",":
 			// Standalone comma (shouldn't happen if we handle it above)
 			continue
-			
+
 		case "}":
 			// End of object
 			break
 		}
 	}
-	
+
 	return properties
 }
 
@@ -262,7 +301,7 @@ func extractKeyAST(keyNode *sitter.Node, content []byte) string {
 
 func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty, content []byte) []byte {
 	var result bytes.Buffer
-	
+
 	// Extract common indentation from first original property after magic comment
 	commonIndent := ""
 	for i := obj.magicIndex + 1; i < int(obj.object.ChildCount()); i++ {
@@ -280,12 +319,12 @@ func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty
 			break
 		}
 	}
-	
+
 	// Write everything up to and including the magic comment
 	// Include the opening brace and everything up to the magic comment
 	for i := 0; i <= obj.magicIndex; i++ {
 		child := obj.object.Child(i)
-		
+
 		// Write any whitespace before this child
 		if i == 0 {
 			result.Write(content[obj.object.StartByte():child.StartByte()])
@@ -293,17 +332,17 @@ func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty
 			prevChild := obj.object.Child(i - 1)
 			result.Write(content[prevChild.EndByte():child.StartByte()])
 		}
-		
+
 		// Write the child itself
 		result.Write(content[child.StartByte():child.EndByte()])
 	}
-	
+
 	// Write newline after magic comment, but not the indentation
 	// (indentation will be added when writing properties)
 	if obj.magicIndex+1 < int(obj.object.ChildCount()) {
 		result.WriteByte('\n')
 	}
-	
+
 	// Write sorted properties
 	for i, prop := range sortedProps {
 		// Write any comments before this property
@@ -323,13 +362,13 @@ func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty
 			result.Write(content[commentNode.StartByte():commentNode.EndByte()])
 			result.WriteByte('\n')
 		}
-		
+
 		// Use common indentation for all properties
 		result.WriteString(commonIndent)
-		
+
 		// Write the property itself (preserving all formatting)
 		result.Write(content[prop.pairNode.StartByte():prop.pairNode.EndByte()])
-		
+
 		// Handle comma
 		if i < len(sortedProps)-1 {
 			if prop.hasComma && prop.commaNode != nil {
@@ -346,19 +385,23 @@ func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty
 				result.WriteByte(',')
 			}
 		}
-		
+
 		// Write inline comment if present
 		if prop.afterNode != nil {
 			result.WriteByte(' ')
 			result.Write(content[prop.afterNode.StartByte():prop.afterNode.EndByte()])
 		}
-		
+
 		// Add newline if not last or if there's more content
 		if i < len(sortedProps)-1 {
 			result.WriteByte('\n')
+			// Add extra newline if with-new-line option is set
+			if obj.sortConfig.WithNewLine {
+				result.WriteByte('\n')
+			}
 		}
 	}
-	
+
 	// Write closing brace and any trailing content
 	closingBraceIdx := -1
 	for i := int(obj.object.ChildCount()) - 1; i >= 0; i-- {
@@ -368,10 +411,10 @@ func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty
 			break
 		}
 	}
-	
+
 	if closingBraceIdx > 0 {
 		closingBrace := obj.object.Child(closingBraceIdx)
-		
+
 		// Write any whitespace/newlines before closing brace
 		// Try to preserve the original spacing
 		originalSpacing := findOriginalClosingSpacing(obj, content)
@@ -380,16 +423,16 @@ func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty
 		} else {
 			result.WriteByte('\n')
 		}
-		
+
 		result.Write(content[closingBrace.StartByte():closingBrace.EndByte()])
 	}
-	
+
 	return result.Bytes()
 }
 
-func findOriginalLastProperty(obj objectWithMagicComment, content []byte) *astProperty {
+func findOriginalLastProperty(obj objectWithMagicComment, _ []byte) *astProperty {
 	var lastProp *astProperty
-	
+
 	for i := obj.magicIndex + 1; i < int(obj.object.ChildCount()); i++ {
 		child := obj.object.Child(i)
 		if child.Type() == "pair" {
@@ -406,14 +449,14 @@ func findOriginalLastProperty(obj objectWithMagicComment, content []byte) *astPr
 			}
 		}
 	}
-	
+
 	return lastProp
 }
 
 func findOriginalClosingSpacing(obj objectWithMagicComment, content []byte) string {
 	// Find the last property or comma
 	lastContentEnd := obj.magicComment.EndByte()
-	
+
 	for i := int(obj.object.ChildCount()) - 1; i > obj.magicIndex; i-- {
 		child := obj.object.Child(i)
 		if child.Type() == "pair" || child.Type() == "," {
@@ -421,7 +464,7 @@ func findOriginalClosingSpacing(obj objectWithMagicComment, content []byte) stri
 			break
 		}
 	}
-	
+
 	// Find closing brace
 	for i := int(obj.object.ChildCount()) - 1; i >= 0; i-- {
 		child := obj.object.Child(i)
@@ -429,6 +472,6 @@ func findOriginalClosingSpacing(obj objectWithMagicComment, content []byte) stri
 			return string(content[lastContentEnd:child.StartByte()])
 		}
 	}
-	
+
 	return "\n"
 }

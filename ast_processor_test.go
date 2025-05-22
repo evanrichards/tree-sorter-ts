@@ -22,10 +22,10 @@ func parseTypeScript(content string) (*sitter.Node, []byte, error) {
 
 func TestFindObjectsWithMagicComments(t *testing.T) {
 	tests := []struct {
-		name         string
-		content      string
-		wantCount    int
-		wantIndices  []int // Expected magic comment indices
+		name        string
+		content     string
+		wantCount   int
+		wantIndices []int // Expected magic comment indices
 	}{
 		{
 			name: "single_object",
@@ -51,10 +51,10 @@ const b = {
 			wantIndices: []int{1, 1},
 		},
 		{
-			name:         "no_magic_comment",
-			content:      `const a = { x: 1, y: 2 };`,
-			wantCount:    0,
-			wantIndices:  []int{},
+			name:        "no_magic_comment",
+			content:     `const a = { x: 1, y: 2 };`,
+			wantCount:   0,
+			wantIndices: []int{},
 		},
 		{
 			name: "nested_objects",
@@ -80,14 +80,14 @@ const b = {
 			}
 
 			objects := findObjectsWithMagicCommentsAST(root, content)
-			
+
 			if len(objects) != tt.wantCount {
 				t.Errorf("Found %d objects, want %d", len(objects), tt.wantCount)
 			}
 
 			for i, obj := range objects {
 				if i < len(tt.wantIndices) && obj.magicIndex != tt.wantIndices[i] {
-					t.Errorf("Object %d: magic comment at index %d, want %d", 
+					t.Errorf("Object %d: magic comment at index %d, want %d",
 						i, obj.magicIndex, tt.wantIndices[i])
 				}
 			}
@@ -97,10 +97,10 @@ const b = {
 
 func TestSortObjectAST(t *testing.T) {
 	tests := []struct {
-		name           string
-		content        string
-		wantSorted     string
-		wantNeedSort   int
+		name         string
+		content      string
+		wantSorted   string
+		wantNeedSort int
 	}{
 		{
 			name: "basic_sort",
@@ -146,9 +146,9 @@ func TestSortObjectAST(t *testing.T) {
 			wantNeedSort: 1,
 		},
 		{
-			name: "multiline_values",
-			content: "const messages = {\n  /** tree-sorter-ts: keep-sorted **/\n  error: `This is\na multiline\nerror`,\n  alert: \"Alert!\",\n};",
-			wantSorted: "const messages = {\n  /** tree-sorter-ts: keep-sorted **/\n  alert: \"Alert!\",\n  error: `This is\na multiline\nerror`,\n};",
+			name:         "multiline_values",
+			content:      "const messages = {\n  /** tree-sorter-ts: keep-sorted **/\n  error: `This is\na multiline\nerror`,\n  alert: \"Alert!\",\n};",
+			wantSorted:   "const messages = {\n  /** tree-sorter-ts: keep-sorted **/\n  alert: \"Alert!\",\n  error: `This is\na multiline\nerror`,\n};",
 			wantNeedSort: 1,
 		},
 		{
@@ -293,7 +293,7 @@ const b = {
 					if needsSort {
 						start := objects[i].object.StartByte()
 						end := objects[i].object.EndByte()
-						
+
 						before := newContent[:start]
 						after := newContent[end:]
 						newContent = append(append(before, sortedContent...), after...)
@@ -368,7 +368,7 @@ func TestExtractKeyAST(t *testing.T) {
 			}
 
 			properties := extractPropertiesAST(objects[0], contentBytes)
-			
+
 			if len(properties) != len(tt.want) {
 				t.Errorf("Got %d properties, want %d", len(properties), len(tt.want))
 			}

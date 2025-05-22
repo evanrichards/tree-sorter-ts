@@ -14,9 +14,8 @@ import (
 )
 
 var (
-	magicCommentRegex = regexp.MustCompile(`/\*\*?\s*tree-sorter-ts:\s*keep-sorted\s*\*+/`)
-	magicComment      = "tree-sorter-ts: keep-sorted"
-	
+	magicCommentRegex = regexp.MustCompile(`(?s)/\*\*?\s*tree-sorter-ts:\s*keep-sorted\s*([^*]*)\*+/`)
+
 	// Parser pool to avoid recreating parsers
 	parserPool = sync.Pool{
 		New: func() interface{} {
@@ -33,7 +32,7 @@ func processFileSimple(filePath string, config Config) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("reading file: %w", err)
 	}
-	
+
 	// Early exit if no magic comment found
 	if !magicCommentRegex.Match(content) {
 		return false, nil
@@ -76,7 +75,7 @@ func processFileSimple(filePath string, config Config) (bool, error) {
 	}
 
 	if changed && config.Write {
-		err = os.WriteFile(filePath, []byte(newContent), 0644)
+		err = os.WriteFile(filePath, []byte(newContent), 0o600)
 		if err != nil {
 			return false, fmt.Errorf("writing file: %w", err)
 		}

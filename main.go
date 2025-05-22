@@ -22,7 +22,7 @@ type Config struct {
 
 func main() {
 	config := parseFlags()
-	
+
 	if err := run(config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -32,25 +32,25 @@ func main() {
 func parseFlags() Config {
 	var config Config
 	var extensions string
-	
+
 	flag.BoolVar(&config.Check, "check", false, "Check if files are sorted (exit 1 if not)")
 	flag.BoolVar(&config.Write, "write", false, "Write changes to files (default: dry-run)")
 	flag.BoolVar(&config.Recursive, "recursive", true, "Process directories recursively")
 	flag.StringVar(&extensions, "extensions", ".ts,.tsx", "File extensions to process")
 	flag.IntVar(&config.Workers, "workers", 0, "Number of parallel workers (0 = number of CPUs)")
-	
+
 	flag.Parse()
-	
+
 	args := flag.Args()
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <path>\n", os.Args[0])
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-	
+
 	config.Path = args[0]
 	config.Extensions = strings.Split(extensions, ",")
-	
+
 	return config
 }
 
@@ -59,9 +59,9 @@ func run(config Config) error {
 	if err != nil {
 		return fmt.Errorf("cannot access path %s: %w", config.Path, err)
 	}
-	
+
 	var files []string
-	
+
 	if fileInfo.IsDir() {
 		files, err = findFiles(config.Path, config.Extensions, config.Recursive)
 		if err != nil {
@@ -74,24 +74,24 @@ func run(config Config) error {
 			return fmt.Errorf("file %s does not have a valid extension", config.Path)
 		}
 	}
-	
+
 	if len(files) == 0 {
 		fmt.Println("No TypeScript files found")
 		return nil
 	}
-	
+
 	fmt.Printf("Found %d TypeScript file(s)\n", len(files))
-	
+
 	// Process files in parallel
 	needsSorting, err := processFilesParallel(files, config)
 	if err != nil {
 		return err
 	}
-	
+
 	if config.Check && needsSorting {
 		return fmt.Errorf("files need sorting")
 	}
-	
+
 	return nil
 }
 
@@ -109,7 +109,6 @@ type summary struct {
 	filesNeedSort   int
 	errorFiles      int
 	totalObjects    int
-	objectsSorted   int
 	objectsNeedSort int
 }
 
@@ -122,14 +121,14 @@ func processFilesParallel(files []string, config Config) (bool, error) {
 			workerCount = 8
 		}
 	}
-	
+
 	// Create channels for work distribution
 	fileChan := make(chan string, len(files))
 	resultChan := make(chan fileResult, len(files))
-	
+
 	// Create wait group for workers
 	var wg sync.WaitGroup
-	
+
 	// Start workers
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
@@ -147,29 +146,29 @@ func processFilesParallel(files []string, config Config) (bool, error) {
 			}
 		}()
 	}
-	
+
 	// Send files to workers
 	for _, file := range files {
 		fileChan <- file
 	}
 	close(fileChan)
-	
+
 	// Wait for workers to finish
 	go func() {
 		wg.Wait()
 		close(resultChan)
 	}()
-	
+
 	// Collect results
 	var needsSorting atomic.Bool
 	var hasError atomic.Bool
 	var errorMutex sync.Mutex
 	var errors []error
-	
+
 	stats := summary{
 		totalFiles: len(files),
 	}
-	
+
 	for result := range resultChan {
 		if result.err != nil {
 			hasError.Store(true)
@@ -180,11 +179,11 @@ func processFilesParallel(files []string, config Config) (bool, error) {
 			stats.errorFiles++
 			continue
 		}
-		
+
 		// Update object counts
 		stats.totalObjects += result.objectsFound
 		stats.objectsNeedSort += result.objectsNeedSort
-		
+
 		if result.changed {
 			needsSorting.Store(true)
 			stats.filesNeedSort++
@@ -202,12 +201,12 @@ func processFilesParallel(files []string, config Config) (bool, error) {
 			}
 		}
 	}
-	
+
 	// Print summary for all modes when processing multiple files
 	if stats.totalFiles > 1 {
 		fmt.Println("\n─────────────────────────────────────")
 		fmt.Printf("Total files:    %d\n", stats.totalFiles)
-		
+
 		if config.Check {
 			fmt.Printf("No changes:     %d\n", stats.filesNoChanges)
 			if stats.filesNeedSort > 0 {
@@ -221,39 +220,39 @@ func processFilesParallel(files []string, config Config) (bool, error) {
 			fmt.Printf("Would sort:     %d\n", stats.filesNeedSort)
 			fmt.Printf("No changes:     %d\n", stats.filesNoChanges)
 		}
-		
+
 		if stats.errorFiles > 0 {
 			fmt.Printf("Errors:         %d\n", stats.errorFiles)
 		}
-		
+
 		// Object-level summary
 		if stats.totalObjects > 0 {
 			fmt.Printf("\nkeep-sorted objects:\n")
 			fmt.Printf("Total found:    %d\n", stats.totalObjects)
-			
+
 			objectsSorted := stats.totalObjects - stats.objectsNeedSort
 			if config.Write {
 				// After writing, all objects are sorted
 				objectsSorted = stats.totalObjects
 			}
-			
+
 			if config.Check {
 				fmt.Printf("Sorted:         %d\n", objectsSorted)
 				if stats.objectsNeedSort > 0 {
 					fmt.Printf("Need sorting:   %d ❌\n", stats.objectsNeedSort)
 				}
 			} else if config.Write {
-				fmt.Printf("Sorted:         %d (was %d)\n", objectsSorted, objectsSorted - stats.objectsNeedSort)
+				fmt.Printf("Sorted:         %d (was %d)\n", objectsSorted, objectsSorted-stats.objectsNeedSort)
 			} else {
 				// Dry-run mode
 				fmt.Printf("Sorted:         %d\n", objectsSorted)
 				fmt.Printf("Would sort:     %d\n", stats.objectsNeedSort)
 			}
-			
+
 			// Calculate object-level compliance
 			percentage := float64(objectsSorted) / float64(stats.totalObjects) * 100
-			beforePercentage := float64(stats.totalObjects - stats.objectsNeedSort) / float64(stats.totalObjects) * 100
-			
+			beforePercentage := float64(stats.totalObjects-stats.objectsNeedSort) / float64(stats.totalObjects) * 100
+
 			if config.Check {
 				fmt.Printf("\nCompliance:     %.1f%%\n", percentage)
 			} else if config.Write {
@@ -263,36 +262,36 @@ func processFilesParallel(files []string, config Config) (bool, error) {
 			}
 		}
 	}
-	
+
 	if hasError.Load() && len(errors) > 0 {
 		return needsSorting.Load(), errors[0]
 	}
-	
+
 	return needsSorting.Load(), nil
 }
 
 func findFiles(root string, extensions []string, recursive bool) ([]string, error) {
 	var files []string
-	
+
 	walkFn := func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		if d.IsDir() {
 			if !recursive && path != root {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		
+
 		if hasValidExtension(path, extensions) {
 			files = append(files, path)
 		}
-		
+
 		return nil
 	}
-	
+
 	err := filepath.WalkDir(root, walkFn)
 	return files, err
 }

@@ -1,0 +1,103 @@
+run:
+  timeout: 5m
+  go: "1.22"
+
+linters:
+  enable:
+    # Default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    
+    # Additional linters for code quality and modernization
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+    - prealloc
+    - gocritic
+    - revive
+    - gosec
+    - copyloopvar
+    - nilerr
+    - errorlint
+    - bodyclose
+    - contextcheck
+    - noctx
+
+linters-settings:
+  gofmt:
+    simplify: true
+  
+  govet:
+    enable:
+      - shadow
+  
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+    disabled-checks:
+      - commentedOutCode
+  
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unreachable-code
+  
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+  
+  gosec:
+    severity: medium
+    confidence: medium
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+    
+    # Exclude vendor if it exists
+    - path: vendor/
+      linters:
+        - typecheck
+        - unused
+  
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+  
+  # Maximum count of issues with the same text
+  max-same-issues: 10
+  
+  # Show only new issues created after this date
+  # new-from-rev: origin/main

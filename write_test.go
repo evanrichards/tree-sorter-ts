@@ -9,10 +9,10 @@ import (
 
 func TestWriteFunctionality(t *testing.T) {
 	tests := []struct {
-		name           string
-		initialContent string
+		name            string
+		initialContent  string
 		expectedContent string
-		shouldChange   bool
+		shouldChange    bool
 	}{
 		{
 			name: "basic_write",
@@ -105,7 +105,7 @@ error\` + "`" + `,
 		t.Run(tt.name, func(t *testing.T) {
 			// Create test file
 			testFile := filepath.Join(tempDir, tt.name+".ts")
-			err := os.WriteFile(testFile, []byte(tt.initialContent), 0644)
+			err := os.WriteFile(testFile, []byte(tt.initialContent), 0o644)
 			if err != nil {
 				t.Fatalf("Failed to write initial file: %v", err)
 			}
@@ -214,7 +214,7 @@ const config3 = {
 	defer os.RemoveAll(tempDir)
 
 	testFile := filepath.Join(tempDir, "multi.ts")
-	err = os.WriteFile(testFile, []byte(initialContent), 0644)
+	err = os.WriteFile(testFile, []byte(initialContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestWritePermissions(t *testing.T) {
 };`
 
 	// Create file with specific permissions
-	err = os.WriteFile(testFile, []byte(content), 0755)
+	err = os.WriteFile(testFile, []byte(content), 0o755)
 	if err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
