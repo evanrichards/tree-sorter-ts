@@ -26,4 +26,4 @@ go.work.sum
 
 # Build output
 bin/
-tree-sorter-ts
+/tree-sorter-ts
