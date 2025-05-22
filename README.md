@@ -187,7 +187,25 @@ Flags:
   --write         Write changes to files (default: dry-run)
   --recursive     Process directories recursively (default: true)
   --extensions    File extensions to process (default: .ts,.tsx)
+  --workers       Number of parallel workers (default: number of CPUs, max 8)
 ```
+
+## Performance
+
+The tool processes files in parallel for optimal performance on large codebases:
+
+- Uses a worker pool pattern with goroutines
+- Default worker count is the number of CPU cores (max 8)
+- Parser instances are pooled and reused
+- Files are pre-filtered using regex before parsing for efficiency
+
+## Features
+
+- ✅ Supports multi-line property values (template literals, multi-line strings)
+- ✅ Handles computed property keys (e.g., `[EnumValue.KEY]`)
+- ✅ Preserves all comments and formatting
+- ✅ Works with both `/** tree-sorter-ts: keep-sorted **/` and `/** tree-sorter-ts: keep-sorted */` formats
+- ✅ Processes files in parallel for performance
 
 ## Error Handling
 
