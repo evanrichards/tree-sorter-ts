@@ -179,6 +179,52 @@ type astProperty struct {
 	commaNode   *sitter.Node
 }
 
+func checkFormattingNeeded(obj objectWithMagicComment, properties []*astProperty, content []byte) bool {
+	// Check if there's an extra newline between properties
+	for i := 0; i < len(properties)-1; i++ {
+		prop := properties[i]
+		nextProp := properties[i+1]
+		
+		// Find the end of current property (including comma and inline comment)
+		endNode := prop.pairNode
+		if prop.afterNode != nil {
+			endNode = prop.afterNode
+		} else if prop.commaNode != nil {
+			endNode = prop.commaNode
+		}
+		
+		// Count newlines between properties
+		startByte := endNode.EndByte()
+		endByte := nextProp.pairNode.StartByte()
+		
+		// Handle beforeNodes of next property
+		if len(nextProp.beforeNodes) > 0 {
+			endByte = nextProp.beforeNodes[0].StartByte()
+		}
+		
+		between := content[startByte:endByte]
+		newlineCount := 0
+		for _, b := range between {
+			if b == '\n' {
+				newlineCount++
+			}
+		}
+		
+		// If with-new-line is set, we expect 2 newlines between properties (one for the line end, one for spacing)
+		// Otherwise, we expect only 1 newline
+		expectedNewlines := 1
+		if obj.sortConfig.WithNewLine {
+			expectedNewlines = 2
+		}
+		
+		if newlineCount != expectedNewlines {
+			return true
+		}
+	}
+	
+	return false
+}
+
 func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 	// Extract properties after magic comment
 	properties := extractPropertiesAST(obj, content)
@@ -202,7 +248,14 @@ func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 		}
 	}
 
-	if alreadySorted {
+	// Even if already sorted, check if formatting needs to change
+	needsFormatting := false
+	if alreadySorted && len(properties) > 1 {
+		// Check if current formatting matches the configuration
+		needsFormatting = checkFormattingNeeded(obj, properties, content)
+	}
+
+	if alreadySorted && !needsFormatting {
 		return nil, false
 	}
 

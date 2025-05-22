@@ -149,6 +149,42 @@ func TestSortObjectASTWithNewLine(t *testing.T) {
 };`,
 			wantNeedSort: 1,
 		},
+		{
+			name: "add_new_line_to_already_sorted",
+			content: `const config = {
+  /** tree-sorter-ts: keep-sorted with-new-line **/
+  alpha: "value2",
+  beta: "value3",
+  zebra: "value1",
+};`,
+			wantSorted: `const config = {
+  /** tree-sorter-ts: keep-sorted with-new-line **/
+  alpha: "value2",
+
+  beta: "value3",
+
+  zebra: "value1",
+};`,
+			wantNeedSort: 1,
+		},
+		{
+			name: "remove_new_line_from_already_sorted",
+			content: `const config = {
+  /** tree-sorter-ts: keep-sorted **/
+  alpha: "value2",
+
+  beta: "value3",
+
+  zebra: "value1",
+};`,
+			wantSorted: `const config = {
+  /** tree-sorter-ts: keep-sorted **/
+  alpha: "value2",
+  beta: "value3",
+  zebra: "value1",
+};`,
+			wantNeedSort: 1,
+		},
 	}
 
 	for _, tt := range tests {
