@@ -284,6 +284,19 @@ make install
   };
   ```
 
+- [ ] **Constructor argument sorting** - Support sorting constructor arguments in class definitions
+  ```typescript
+  class UserService {
+    constructor(
+      /** tree-sorter-ts: keep-sorted **/
+      private readonly userRepository: UserRepository,
+      private readonly logger: Logger,
+      private readonly cache: CacheService,
+      private readonly eventBus: EventBus,
+    ) {}
+  }
+  ```
+
 ## License
 
 MIT
