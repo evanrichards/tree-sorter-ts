@@ -1,0 +1,24 @@
+# Source code
+*.go
+go.mod
+go.sum
+/cmd/
+/internal/
+/testdata/
+main.go
+
+# Build files
+Makefile
+.github/
+
+# Development files
+*.test
+*.out
+.DS_Store
+
+# Keep only what's needed for npm
+# bin/ (wrapper script)
+# scripts/ (install scripts)
+# README.md
+# LICENSE
+# package.json
