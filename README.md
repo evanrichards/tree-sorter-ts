@@ -63,6 +63,9 @@ tree-sorter-ts --write src/
 # Check mode - exits with code 1 if files need sorting
 tree-sorter-ts --check src/
 
+# Check mode with detailed output
+tree-sorter-ts --check --verbose src/
+
 # Process a single file
 tree-sorter-ts --write src/config.ts
 
@@ -196,6 +199,7 @@ const config2 = {
 - `--recursive` - Process directories recursively (default: true)
 - `--extensions` - File extensions to process (default: ".ts,.tsx")
 - `--workers` - Number of parallel workers (default: number of CPUs)
+- `--verbose` - Show detailed output (default: false)
 
 ## Examples
 

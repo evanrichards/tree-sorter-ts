@@ -31,6 +31,7 @@ func parseFlags() processor.Config {
 	flag.BoolVar(&config.Recursive, "recursive", true, "Process directories recursively")
 	flag.StringVar(&extensions, "extensions", ".ts,.tsx", "File extensions to process")
 	flag.IntVar(&config.Workers, "workers", 0, "Number of parallel workers (0 = number of CPUs)")
+	flag.BoolVar(&config.Verbose, "verbose", false, "Show detailed output")
 
 	flag.Parse()
 
@@ -69,11 +70,15 @@ func run(config processor.Config) error {
 	}
 
 	if len(files) == 0 {
-		fmt.Println("No TypeScript files found")
+		if config.Verbose {
+			fmt.Println("No TypeScript files found")
+		}
 		return nil
 	}
 
-	fmt.Printf("Found %d TypeScript file(s)\n", len(files))
+	if config.Verbose {
+		fmt.Printf("Found %d TypeScript file(s)\n", len(files))
+	}
 
 	// Process files in parallel
 	needsSorting, err := processFilesParallel(files, config)
@@ -168,27 +173,31 @@ func processFilesParallel(files []string, config processor.Config) (bool, error)
 			needsSorting.Store(true)
 			stats.filesNeedSort++
 
-			if config.Write {
-				fmt.Printf("✓ Sorted %s (%d objects)\n", result.file, result.objectsNeedSort)
-			} else if config.Check {
-				fmt.Printf("✗ Needs sorting: %s (%d objects need sorting)\n", result.file, result.objectsNeedSort)
-			} else {
-				// Dry-run mode
-				fmt.Printf("Would sort %s (%d objects need sorting)\n", result.file, result.objectsNeedSort)
+			if config.Verbose {
+				if config.Write {
+					fmt.Printf("✓ Sorted %s (%d objects)\n", result.file, result.objectsNeedSort)
+				} else if config.Check {
+					fmt.Printf("✗ Needs sorting: %s (%d objects need sorting)\n", result.file, result.objectsNeedSort)
+				} else {
+					// Dry-run mode
+					fmt.Printf("Would sort %s (%d objects need sorting)\n", result.file, result.objectsNeedSort)
+				}
 			}
 		} else {
 			stats.filesNoChanges++
-			// Only print in check mode if objects were found
-			if config.Check && result.objectsFound > 0 {
-				fmt.Printf("✓ No changes needed %s (%d objects already sorted)\n", result.file, result.objectsFound)
-			} else if config.Check {
-				fmt.Printf("✓ No changes needed %s\n", result.file)
+			if config.Verbose {
+				// Only print in check mode if objects were found
+				if config.Check && result.objectsFound > 0 {
+					fmt.Printf("✓ No changes needed %s (%d objects already sorted)\n", result.file, result.objectsFound)
+				} else if config.Check {
+					fmt.Printf("✓ No changes needed %s\n", result.file)
+				}
 			}
 		}
 	}
 
 	// Print summary for all modes when processing multiple files
-	if stats.totalFiles > 1 {
+	if config.Verbose && stats.totalFiles > 1 {
 		fmt.Println("\n─────────────────────────────────────")
 		fmt.Printf("Total files:    %d\n", stats.totalFiles)
 

@@ -25,6 +25,7 @@ type Config struct {
 	Extensions []string
 	Path       string
 	Workers    int
+	Verbose    bool
 }
 
 // ProcessResult contains the result of processing a file
