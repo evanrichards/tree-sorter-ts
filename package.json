@@ -1,0 +1,49 @@
+{
+  "name": "tree-sorter-ts",
+  "version": "0.1.0",
+  "description": "A CLI tool that automatically sorts TypeScript object literals marked with special comments",
+  "keywords": [
+    "typescript",
+    "sorter",
+    "ast",
+    "tree-sitter",
+    "cli",
+    "formatter",
+    "linter"
+  ],
+  "bin": {
+    "tree-sorter-ts": "./bin/tree-sorter-ts.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "preuninstall": "node scripts/preuninstall.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evanrichards/tree-sorter-ts.git"
+  },
+  "author": "Evan Richards",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/evanrichards/tree-sorter-ts/issues"
+  },
+  "homepage": "https://github.com/evanrichards/tree-sorter-ts#readme",
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
