@@ -311,6 +311,25 @@ make install
   }
   ```
 
+- [ ] **Class member sorting** - Sort class members including decorators and annotations
+  ```typescript
+  class APIClient {
+    /** tree-sorter-ts: keep-sorted **/
+    @deprecated()
+    legacyEndpoint: string;
+    
+    @inject()
+    httpClient: HttpClient;
+    
+    apiKey: string;
+    
+    baseUrl: string;
+    
+    @observable()
+    isLoading: boolean;
+  }
+  ```
+
 ## License
 
 MIT
