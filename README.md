@@ -17,18 +17,26 @@ A Go CLI tool that automatically sorts TypeScript object literals marked with sp
 
 ## Installation
 
-### Using `go install`
+### Using npm or yarn (Recommended)
 ```bash
-# Install the latest version
-go install github.com/evanrichards/tree-sorter-ts/cmd/tree-sorter-ts@latest
+# Using npm
+npm install --save-dev tree-sorter-ts
+
+# Using yarn
+yarn add -D tree-sorter-ts
 
 # Run the installed binary
-tree-sorter-ts --help
+npx tree-sorter-ts --help
+# or
+yarn tree-sorter-ts --help
 ```
 
-### Using `go run`
+### Using Go
 ```bash
-# Run directly without installation
+# Using go install
+go install github.com/evanrichards/tree-sorter-ts/cmd/tree-sorter-ts@latest
+
+# Using go run
 go run github.com/evanrichards/tree-sorter-ts@latest --help
 ```
 
@@ -194,9 +202,11 @@ const config2 = {
 ### CI/CD Integration
 ```yaml
 # GitHub Actions example
+- name: Install tree-sorter-ts
+  run: npm install --save-dev tree-sorter-ts
+
 - name: Check TypeScript objects are sorted
-  run: |
-    go run github.com/evanrichards/tree-sorter-ts@latest --check src/
+  run: npx tree-sorter-ts --check src/
 ```
 
 ### Pre-commit Hook
