@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	magicCommentRegex = regexp.MustCompile(`(?s)/\*\*?\s*tree-sorter-ts:\s*keep-sorted\s*([^*]*)\*+/`)
+	magicCommentRegex = regexp.MustCompile(`(?s)/\*\*?.*?tree-sorter-ts:\s*keep-sorted\b.*?\*/`)
 
 	// Parser pool to avoid recreating parsers
 	parserPool = sync.Pool{
