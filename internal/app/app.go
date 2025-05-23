@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	
+
 	"github.com/evanrichards/tree-sorter-ts/internal/fileutil"
 	"github.com/evanrichards/tree-sorter-ts/internal/processor"
 )

@@ -70,6 +70,16 @@ const b = {
 			wantCount:   2,
 			wantIndices: []int{1, 1},
 		},
+		{
+			name: "object_in_parentheses",
+			content: `someFunction({
+  /** tree-sorter-ts: keep-sorted **/
+  z: 1,
+  a: 2,
+})`,
+			wantCount:   1,
+			wantIndices: []int{1},
+		},
 	}
 
 	for _, tt := range tests {
@@ -253,6 +263,22 @@ const b = {
       Type.BASE
     ].replace(/text/g, 'replaced'),
 };`,
+			wantNeedSort: 1,
+		},
+		{
+			name: "object_in_function_call",
+			content: `someFunction({
+  /** tree-sorter-ts: keep-sorted **/
+  zebra: "last",
+  alpha: "first",
+  beta: "second",
+})`,
+			wantSorted: `someFunction({
+  /** tree-sorter-ts: keep-sorted **/
+  alpha: "first",
+  beta: "second",
+  zebra: "last",
+})`,
 			wantNeedSort: 1,
 		},
 	}

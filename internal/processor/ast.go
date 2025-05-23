@@ -11,6 +11,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
+
 // SortConfig contains configuration options from the magic comment
 type SortConfig struct {
 	WithNewLine     bool
@@ -88,14 +89,17 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 	if result.ObjectsNeedSort > 0 {
 		result.Changed = true
 		for _, obj := range objects {
-			sortedContent, wasChanged := sortObjectAST(obj, newContent)
+			sortedContent, wasChanged := sortObjectAST(obj, content)
 			if wasChanged {
 				start := obj.object.StartByte()
 				end := obj.object.EndByte()
 
-				before := newContent[:start]
-				after := newContent[end:]
-				newContent = append(append(before, sortedContent...), after...)
+				// Create a new slice to avoid corruption when content size changes
+				result := make([]byte, 0, len(newContent)-int(end-start)+len(sortedContent))
+				result = append(result, newContent[:start]...)
+				result = append(result, sortedContent...)
+				result = append(result, newContent[end:]...)
+				newContent = result
 			}
 		}
 	}
@@ -224,7 +228,7 @@ func checkFormattingNeeded(obj objectWithMagicComment, properties []*astProperty
 	for i := 0; i < len(properties)-1; i++ {
 		prop := properties[i]
 		nextProp := properties[i+1]
-		
+
 		// Find the end of current property (including comma and inline comment)
 		endNode := prop.pairNode
 		if prop.afterNode != nil {
@@ -232,16 +236,16 @@ func checkFormattingNeeded(obj objectWithMagicComment, properties []*astProperty
 		} else if prop.commaNode != nil {
 			endNode = prop.commaNode
 		}
-		
+
 		// Count newlines between properties
 		startByte := endNode.EndByte()
 		endByte := nextProp.pairNode.StartByte()
-		
+
 		// Handle beforeNodes of next property
 		if len(nextProp.beforeNodes) > 0 {
 			endByte = nextProp.beforeNodes[0].StartByte()
 		}
-		
+
 		between := content[startByte:endByte]
 		newlineCount := 0
 		for _, b := range between {
@@ -249,19 +253,19 @@ func checkFormattingNeeded(obj objectWithMagicComment, properties []*astProperty
 				newlineCount++
 			}
 		}
-		
+
 		// If with-new-line is set, we expect 2 newlines between properties (one for the line end, one for spacing)
 		// Otherwise, we expect only 1 newline
 		expectedNewlines := 1
 		if obj.sortConfig.WithNewLine {
 			expectedNewlines = 2
 		}
-		
+
 		if newlineCount != expectedNewlines {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -276,7 +280,7 @@ func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 	// Check if already sorted
 	sorted := make([]*astProperty, len(properties))
 	copy(sorted, properties)
-	
+
 	// Sort properties, considering deprecated-at-end flag
 	if obj.sortConfig.DeprecatedAtEnd {
 		sort.Slice(sorted, func(i, j int) bool {
