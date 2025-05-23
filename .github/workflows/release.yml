@@ -17,12 +17,12 @@ jobs:
         include:
           - os: darwin
             arch: amd64
-            runner: macos-latest
+            runner: macos-13  # Intel Mac
             goos: darwin
             goarch: amd64
           - os: darwin
             arch: arm64
-            runner: macos-latest
+            runner: macos-latest  # Apple Silicon Mac
             goos: darwin
             goarch: arm64
           - os: linux
@@ -45,33 +45,30 @@ jobs:
             runner: windows-latest
             goos: windows
             goarch: arm64
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-      
+
       - name: Build binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
         run: |
           go build -o tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/tree-sorter-ts
-      
+
       - name: Create archive
         run: |
           tar -czf tree-sorter-ts_${{ matrix.os }}_${{ matrix.arch }}.tar.gz tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }}
         if: matrix.os != 'windows'
-      
+
       - name: Create archive (Windows)
         run: |
           tar -czf tree-sorter-ts_${{ matrix.os }}_${{ matrix.arch }}.tar.gz tree-sorter-ts.exe
         if: matrix.os == 'windows'
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -82,16 +79,16 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -104,22 +101,22 @@ jobs:
     name: Publish to NPM
     needs: release
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           registry-url: 'https://registry.npmjs.org'
-      
+
       - name: Update package version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           npm version $VERSION --no-git-tag-version
-      
+
       - name: Publish to NPM
         run: npm publish
         env:
