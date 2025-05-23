@@ -429,6 +429,26 @@ make install
   }
   ```
 
+- [ ] **Sort by comment contents** - Support sorting elements based on inline or preceding comment contents
+  ```typescript
+  const userIds = [
+    /** tree-sorter-ts: keep-sorted sort-by-comment **/
+    "u_8234", // Bob Smith
+    "u_9823", // Alice Johnson
+    "u_1234", // David Lee
+    "u_4521", // Carol White
+  ];
+  
+  // Would sort to:
+  const userIds = [
+    /** tree-sorter-ts: keep-sorted sort-by-comment **/
+    "u_9823", // Alice Johnson
+    "u_8234", // Bob Smith
+    "u_4521", // Carol White
+    "u_1234", // David Lee
+  ];
+  ```
+
 ## License
 
 MIT
