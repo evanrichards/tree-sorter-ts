@@ -16,8 +16,12 @@ Makefile
 *.out
 .DS_Store
 
+# Binary files (downloaded during postinstall)
+bin/tree-sorter-ts
+bin/tree-sorter-ts.exe
+
 # Keep only what's needed for npm
-# bin/ (wrapper script)
+# bin/tree-sorter-ts.js (wrapper script)
 # scripts/ (install scripts)
 # README.md
 # LICENSE
