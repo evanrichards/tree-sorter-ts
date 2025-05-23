@@ -1,11 +1,12 @@
 # tree-sorter-ts
 
-A Go CLI tool that automatically sorts TypeScript object literals marked with special comments. It uses Tree-sitter for accurate AST parsing while preserving exact formatting, comments, and structure.
+A Go CLI tool that automatically sorts TypeScript object literals and arrays marked with special comments. It uses Tree-sitter for accurate AST parsing while preserving exact formatting, comments, and structure.
 
 ## Features
 
 - 🔧 Sorts object properties alphabetically
-- 🎯 Only touches objects marked with `/** tree-sorter-ts: keep-sorted **/`
+- 📊 Sorts array elements with customizable sorting keys
+- 🎯 Only touches objects/arrays marked with `/** tree-sorter-ts: keep-sorted **/`
 - 💬 Preserves all comments (inline and block)
 - 🔑 Handles computed property keys like `[EnumName.VALUE]`
 - 📁 Processes files in parallel for performance
@@ -192,6 +193,114 @@ const config2 = {
 };
 ```
 
+### Sorting arrays
+
+Arrays can also be sorted by placing the magic comment inside the array:
+
+```typescript
+const users = [
+  /** tree-sorter-ts: keep-sorted key="name" **/
+  { name: "Zoe", age: 30 },
+  { name: "Alice", age: 25 },
+  { name: "Bob", age: 28 },
+];
+```
+
+After sorting:
+
+```typescript
+const users = [
+  /** tree-sorter-ts: keep-sorted key="name" **/
+  { name: "Alice", age: 25 },
+  { name: "Bob", age: 28 },
+  { name: "Zoe", age: 30 },
+];
+```
+
+#### Array sorting options
+
+**Sort by object property:**
+```typescript
+const items = [
+  /** tree-sorter-ts: keep-sorted key="priority" **/
+  { name: "Task C", priority: 3 },
+  { name: "Task A", priority: 1 },
+  { name: "Task B", priority: 2 },
+];
+```
+
+**Sort by array index (for tuples):**
+```typescript
+const data = [
+  /** tree-sorter-ts: keep-sorted key="1" **/
+  ["apple", 5, true],
+  ["banana", 2, false],
+  ["cherry", 8, true]
+];
+// Sorts by the second element (index 1): 2, 5, 8
+```
+
+**Sort scalar arrays (no key needed):**
+```typescript
+const numbers = [
+  /** tree-sorter-ts: keep-sorted **/
+  5, 2, 8, 1, 9
+];
+// Result: [1, 2, 5, 8, 9]
+
+const words = [
+  /** tree-sorter-ts: keep-sorted **/
+  "banana", "apple", "cherry"
+];
+// Result: ["apple", "banana", "cherry"]
+```
+
+**Nested property access:**
+```typescript
+const users = [
+  /** tree-sorter-ts: keep-sorted key="profile.firstName" **/
+  { profile: { firstName: "Charlie", lastName: "Brown" } },
+  { profile: { firstName: "Alice", lastName: "Smith" } },
+  { profile: { firstName: "Bob", lastName: "Jones" } }
+];
+```
+
+**With options (with-new-line and deprecated-at-end):**
+```typescript
+const features = [
+  /** tree-sorter-ts: keep-sorted key="name" deprecated-at-end with-new-line **/
+  { name: "Feature C", enabled: true },
+  /** @deprecated */
+  { name: "Feature A", enabled: false },
+  { name: "Feature B", enabled: true },
+];
+```
+
+Results in:
+```typescript
+const features = [
+  /** tree-sorter-ts: keep-sorted key="name" deprecated-at-end with-new-line **/
+  { name: "Feature B", enabled: true },
+
+  { name: "Feature C", enabled: true },
+
+  /** @deprecated */
+  { name: "Feature A", enabled: false },
+];
+```
+
+**Graceful handling of missing keys:**
+Elements without the specified key are sorted to the end:
+```typescript
+const mixed = [
+  /** tree-sorter-ts: keep-sorted key="id" **/
+  { id: 3, name: "Three" },
+  { name: "No ID" },  // Missing 'id' - will sort to end
+  { id: 1, name: "One" },
+];
+// Result: elements with 'id' first (sorted), then elements without 'id'
+```
+
 ## Flags
 
 - `--check` - Check if files are sorted (exit 1 if not)
@@ -262,16 +371,6 @@ make install
 ```
 
 ## TODO
-
-- [ ] **Array sorting support** - Sort arrays with a `key` flag to sort objects by a specific path
-  ```typescript
-  const users = [
-    /** tree-sorter-ts: keep-sorted key="name" **/
-    { name: "Zoe", age: 30 },
-    { name: "Alice", age: 25 },
-    { name: "Bob", age: 28 },
-  ];
-  ```
 
 - [ ] **Section sorting** - Support `start-sort` and `end-sort` comments for sorting subsections
   ```typescript

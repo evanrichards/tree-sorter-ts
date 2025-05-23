@@ -11,11 +11,11 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
-
 // SortConfig contains configuration options from the magic comment
 type SortConfig struct {
 	WithNewLine     bool
 	DeprecatedAtEnd bool
+	Key             string // For array sorting
 }
 
 // Config holds the configuration for processing files
@@ -61,38 +61,83 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 
 	rootNode := tree.RootNode()
 
-	// Find all objects containing magic comments
+	// Find all objects and arrays containing magic comments
 	objects := findObjectsWithMagicCommentsAST(rootNode, content)
-	if len(objects) == 0 {
+	arrays := findArraysWithMagicCommentsAST(rootNode, content)
+
+	if len(objects) == 0 && len(arrays) == 0 {
 		return result, nil
 	}
 
-	result.ObjectsFound = len(objects)
+	result.ObjectsFound = len(objects) + len(arrays)
 
-	// Process objects from end to beginning
-	sort.Slice(objects, func(i, j int) bool {
-		return objects[i].object.StartByte() > objects[j].object.StartByte()
+	// Create a combined list of sortable items
+	type sortableItem struct {
+		startByte uint32
+		endByte   uint32
+		isArray   bool
+		objIndex  int
+		arrIndex  int
+	}
+
+	// Pre-allocate items slice
+	items := make([]sortableItem, 0, len(objects)+len(arrays))
+	for i, obj := range objects {
+		items = append(items, sortableItem{
+			startByte: obj.object.StartByte(),
+			endByte:   obj.object.EndByte(),
+			isArray:   false,
+			objIndex:  i,
+		})
+	}
+	for i, arr := range arrays {
+		items = append(items, sortableItem{
+			startByte: arr.array.StartByte(),
+			endByte:   arr.array.EndByte(),
+			isArray:   true,
+			arrIndex:  i,
+		})
+	}
+
+	// Process items from end to beginning
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].startByte > items[j].startByte
 	})
 
 	newContent := make([]byte, len(content))
 	copy(newContent, content)
 
 	// First pass: count how many need sorting
-	for _, obj := range objects {
-		_, wasChanged := sortObjectAST(obj, content)
-		if wasChanged {
-			result.ObjectsNeedSort++
+	for _, item := range items {
+		if item.isArray {
+			_, wasChanged := sortArrayAST(arrays[item.arrIndex], content)
+			if wasChanged {
+				result.ObjectsNeedSort++
+			}
+		} else {
+			_, wasChanged := sortObjectAST(objects[item.objIndex], content)
+			if wasChanged {
+				result.ObjectsNeedSort++
+			}
 		}
 	}
 
 	// Second pass: actually apply changes if needed
 	if result.ObjectsNeedSort > 0 {
 		result.Changed = true
-		for _, obj := range objects {
-			sortedContent, wasChanged := sortObjectAST(obj, content)
+		for _, item := range items {
+			var sortedContent []byte
+			var wasChanged bool
+
+			if item.isArray {
+				sortedContent, wasChanged = sortArrayAST(arrays[item.arrIndex], content)
+			} else {
+				sortedContent, wasChanged = sortObjectAST(objects[item.objIndex], content)
+			}
+
 			if wasChanged {
-				start := obj.object.StartByte()
-				end := obj.object.EndByte()
+				start := item.startByte
+				end := item.endByte
 
 				// Create a new slice to avoid corruption when content size changes
 				result := make([]byte, 0, len(newContent)-int(end-start)+len(sortedContent))
@@ -154,12 +199,23 @@ func parseSortConfig(commentText []byte) SortConfig {
 
 			// Parse configuration options
 			options := strings.Fields(configPart)
-			for _, opt := range options {
+			for i, opt := range options {
 				switch opt {
 				case "with-new-line":
 					config.WithNewLine = true
 				case "deprecated-at-end":
 					config.DeprecatedAtEnd = true
+				default:
+					// Check for key="value" pattern
+					if strings.HasPrefix(opt, "key=") {
+						// Extract the quoted value
+						keyPart := opt[4:]
+						keyPart = strings.Trim(keyPart, "\"'")
+						config.Key = keyPart
+					} else if opt == "key=" && i+1 < len(options) {
+						// Handle case where key= and value are separate
+						config.Key = strings.Trim(options[i+1], "\"'")
+					}
 				}
 			}
 		}
@@ -599,5 +655,564 @@ func findOriginalClosingSpacing(obj objectWithMagicComment, content []byte) stri
 		}
 	}
 
+	return "\n"
+}
+
+// Array sorting functionality
+
+type arrayWithMagicComment struct {
+	array        *sitter.Node
+	magicComment *sitter.Node
+	magicIndex   int // Index of magic comment in children
+	sortConfig   SortConfig
+}
+
+func findArraysWithMagicCommentsAST(node *sitter.Node, content []byte) []arrayWithMagicComment {
+	var results []arrayWithMagicComment
+
+	var traverse func(*sitter.Node)
+	traverse = func(n *sitter.Node) {
+		if n.Type() == "array" {
+			// Check children for magic comment
+			for i := 0; i < int(n.ChildCount()); i++ {
+				child := n.Child(i)
+				if child.Type() == "comment" {
+					text := content[child.StartByte():child.EndByte()]
+					if magicCommentRegex.Match(text) {
+						results = append(results, arrayWithMagicComment{
+							array:        n,
+							magicComment: child,
+							magicIndex:   i,
+							sortConfig:   parseSortConfig(text),
+						})
+						break
+					}
+				}
+			}
+		}
+
+		for i := 0; i < int(n.ChildCount()); i++ {
+			traverse(n.Child(i))
+		}
+	}
+
+	traverse(node)
+	return results
+}
+
+type arrayElement struct {
+	node         *sitter.Node
+	beforeNodes  []*sitter.Node // Comments before this element
+	afterNode    *sitter.Node   // Inline comment after element
+	hasComma     bool
+	commaNode    *sitter.Node
+	sortKey      string // The extracted key for sorting
+	isDeprecated bool
+}
+
+func sortArrayAST(arr arrayWithMagicComment, content []byte) (result []byte, changed bool) {
+	// Extract elements after magic comment
+	elements := extractArrayElementsAST(arr, content)
+
+	if len(elements) <= 1 {
+		return nil, false
+	}
+
+	// Extract sort keys for each element
+	for _, elem := range elements {
+		key, err := extractElementKey(elem, arr.sortConfig.Key, content)
+		if err != nil {
+			// For missing/invalid keys, mark with special prefix to sort last
+			elem.sortKey = "\uffff" + string(content[elem.node.StartByte():elem.node.EndByte()])
+		} else {
+			elem.sortKey = key
+		}
+	}
+
+	// Check if already sorted
+	sorted := make([]*arrayElement, len(elements))
+	copy(sorted, elements)
+
+	// Sort elements, considering deprecated-at-end flag
+	if arr.sortConfig.DeprecatedAtEnd {
+		sort.Slice(sorted, func(i, j int) bool {
+			// If one is deprecated and the other isn't, put non-deprecated first
+			if sorted[i].isDeprecated != sorted[j].isDeprecated {
+				return !sorted[i].isDeprecated
+			}
+			// Use string comparison to ensure \uffff prefix works for missing keys
+			return sorted[i].sortKey < sorted[j].sortKey
+		})
+	} else {
+		sort.Slice(sorted, func(i, j int) bool {
+			// Check if either has missing key prefix
+			iHasMissingKey := strings.HasPrefix(sorted[i].sortKey, "\uffff")
+			jHasMissingKey := strings.HasPrefix(sorted[j].sortKey, "\uffff")
+
+			// If one has missing key and other doesn't, sort missing key last
+			if iHasMissingKey != jHasMissingKey {
+				return !iHasMissingKey
+			}
+
+			// If both have or don't have missing keys, compare normally
+			if iHasMissingKey && jHasMissingKey {
+				// Both have missing keys, compare without prefix
+				return sorted[i].sortKey < sorted[j].sortKey
+			}
+
+			// Neither has missing key, use compareKeys for proper type handling
+			return compareKeys(sorted[i].sortKey, sorted[j].sortKey)
+		})
+	}
+
+	alreadySorted := true
+	for i := range elements {
+		// Compare by node pointer to check if order changed
+		if elements[i].node != sorted[i].node {
+			alreadySorted = false
+			break
+		}
+	}
+
+	// Even if already sorted, check if formatting needs to change
+	needsFormatting := false
+	if alreadySorted && len(elements) > 1 {
+		needsFormatting = checkArrayFormattingNeeded(arr, elements, content)
+	}
+
+	if alreadySorted && !needsFormatting {
+		return nil, false
+	}
+
+	// Reconstruct the array with sorted elements
+	return reconstructArrayAST(arr, sorted, content), true
+}
+
+func extractArrayElementsAST(arr arrayWithMagicComment, content []byte) []*arrayElement {
+	// Pre-allocate elements slice based on estimated count
+	elements := make([]*arrayElement, 0, int(arr.array.ChildCount())/2)
+	var pendingComments []*sitter.Node
+
+	// Start after magic comment
+	startIdx := arr.magicIndex + 1
+
+	for i := startIdx; i < int(arr.array.ChildCount()); i++ {
+		child := arr.array.Child(i)
+
+		switch child.Type() {
+		case "comment":
+			// Accumulate comments
+			pendingComments = append(pendingComments, child)
+
+		case ",":
+			// Skip standalone commas
+			continue
+
+		case "]":
+			// End of array
+			break
+
+		default:
+			// This is an array element
+			elem := &arrayElement{
+				node:        child,
+				beforeNodes: pendingComments,
+			}
+
+			// Check if this element has @deprecated annotation
+			elem.isDeprecated = hasDeprecatedAnnotation(pendingComments, content)
+
+			// Check if followed by comma and/or inline comment
+			j := i + 1
+			continueLoop := true
+			for j < int(arr.array.ChildCount()) && continueLoop {
+				next := arr.array.Child(j)
+				switch next.Type() {
+				case ",":
+					elem.hasComma = true
+					elem.commaNode = next
+					j++
+				case "comment":
+					// Check if it's on the same line
+					if next.StartPoint().Row == child.EndPoint().Row {
+						elem.afterNode = next
+						j++
+					} else {
+						continueLoop = false
+					}
+				default:
+					continueLoop = false
+				}
+			}
+			i = j - 1 // Update loop counter to skip processed nodes
+
+			// Also check inline comment for @deprecated
+			if !elem.isDeprecated && elem.afterNode != nil {
+				text := string(content[elem.afterNode.StartByte():elem.afterNode.EndByte()])
+				if strings.Contains(text, "@deprecated") {
+					elem.isDeprecated = true
+				}
+			}
+
+			elements = append(elements, elem)
+			pendingComments = nil // Reset comments
+		}
+	}
+
+	return elements
+}
+
+func extractElementKey(elem *arrayElement, keyPath string, content []byte) (string, error) {
+	// If no key specified, use the raw element text for sorting
+	if keyPath == "" {
+		// Use raw text to preserve quotes and maintain consistent sorting
+		return string(content[elem.node.StartByte():elem.node.EndByte()]), nil
+	}
+
+	// Determine element type
+	switch elem.node.Type() {
+	case "object":
+		// For objects, extract the specified property
+		return extractObjectProperty(elem.node, keyPath, content)
+	case "array":
+		// For tuples, extract by index
+		return extractArrayIndex(elem.node, keyPath, content)
+	default:
+		// For scalars, use the value itself
+		return extractValueAsString(elem.node, content), nil
+	}
+}
+
+func extractObjectProperty(objNode *sitter.Node, keyPath string, content []byte) (string, error) {
+	// Split keyPath for nested access (e.g., "profile.firstName")
+	keys := strings.Split(keyPath, ".")
+	currentNode := objNode
+
+	for _, key := range keys {
+		found := false
+		// Look for the property in the current object
+		for i := 0; i < int(currentNode.ChildCount()); i++ {
+			child := currentNode.Child(i)
+			if child.Type() == "pair" {
+				keyNode := child.ChildByFieldName("key")
+				if keyNode != nil {
+					propKey := extractKeyAST(keyNode, content)
+					if propKey == key {
+						valueNode := child.ChildByFieldName("value")
+						if valueNode != nil {
+							if len(keys) > 1 && valueNode.Type() == "object" {
+								// Continue traversing for nested property
+								currentNode = valueNode
+								found = true
+								break
+							}
+							// Found the final value
+							return extractValueAsString(valueNode, content), nil
+						}
+					}
+				}
+			}
+		}
+		if !found {
+			return "", fmt.Errorf("key not found: %s", key)
+		}
+	}
+
+	return "", fmt.Errorf("key not found: %s", keyPath)
+}
+
+func extractArrayIndex(arrNode *sitter.Node, indexStr string, content []byte) (string, error) {
+	index := 0
+	_, err := fmt.Sscanf(indexStr, "%d", &index)
+	if err != nil {
+		return "", fmt.Errorf("invalid index: %s", indexStr)
+	}
+
+	// Count actual elements (skip commas and comments)
+	elementCount := 0
+	for i := 0; i < int(arrNode.ChildCount()); i++ {
+		child := arrNode.Child(i)
+		if child.Type() != "," && child.Type() != "comment" && child.Type() != "[" && child.Type() != "]" {
+			if elementCount == index {
+				return extractValueAsString(child, content), nil
+			}
+			elementCount++
+		}
+	}
+
+	return "", fmt.Errorf("index out of bounds: %d", index)
+}
+
+func extractValueAsString(node *sitter.Node, content []byte) string {
+	switch node.Type() {
+	case "string":
+		// Remove quotes from strings
+		text := string(content[node.StartByte():node.EndByte()])
+		return strings.Trim(text, "\"'`")
+	case "number":
+		return string(content[node.StartByte():node.EndByte()])
+	case "true", "false":
+		return string(content[node.StartByte():node.EndByte()])
+	case "null":
+		return "null"
+	default:
+		// For complex types, use the raw text
+		return string(content[node.StartByte():node.EndByte()])
+	}
+}
+
+func compareKeys(a, b string) bool {
+	// Try to compare as numbers first
+	var numA, numB float64
+	_, errA := fmt.Sscanf(a, "%f", &numA)
+	_, errB := fmt.Sscanf(b, "%f", &numB)
+
+	if errA == nil && errB == nil {
+		// Both are numbers
+		return numA < numB
+	}
+
+	// Try to compare as booleans
+	if (a == "true" || a == "false") && (b == "true" || b == "false") {
+		// false < true
+		return a == "false" && b == "true"
+	}
+
+	// Default to string comparison
+	return a < b
+}
+
+func checkArrayFormattingNeeded(arr arrayWithMagicComment, elements []*arrayElement, content []byte) bool {
+	// For single-line arrays, no formatting changes needed
+	if len(elements) > 0 {
+		firstElem := elements[0]
+		lastElem := elements[len(elements)-1]
+		if firstElem.node.StartPoint().Row == lastElem.node.EndPoint().Row {
+			return false
+		}
+	}
+
+	// Check if there's an extra newline between elements
+	for i := 0; i < len(elements)-1; i++ {
+		elem := elements[i]
+		nextElem := elements[i+1]
+
+		// Find the end of current element (including comma and inline comment)
+		endNode := elem.node
+		if elem.afterNode != nil {
+			endNode = elem.afterNode
+		} else if elem.commaNode != nil {
+			endNode = elem.commaNode
+		}
+
+		// Count newlines between elements
+		startByte := endNode.EndByte()
+		endByte := nextElem.node.StartByte()
+
+		// Handle beforeNodes of next element
+		if len(nextElem.beforeNodes) > 0 {
+			endByte = nextElem.beforeNodes[0].StartByte()
+		}
+
+		between := content[startByte:endByte]
+		newlineCount := 0
+		for _, b := range between {
+			if b == '\n' {
+				newlineCount++
+			}
+		}
+
+		// If with-new-line is set, we expect 2 newlines between elements
+		expectedNewlines := 1
+		if arr.sortConfig.WithNewLine {
+			expectedNewlines = 2
+		}
+
+		if newlineCount != expectedNewlines {
+			return true
+		}
+	}
+
+	return false
+}
+
+func reconstructArrayAST(arr arrayWithMagicComment, sortedElems []*arrayElement, content []byte) []byte {
+	var result bytes.Buffer
+
+	// Check if this is a single-line array (all elements on same line)
+	isSingleLine := false
+	if len(sortedElems) > 0 {
+		firstElem := sortedElems[0]
+		lastElem := sortedElems[len(sortedElems)-1]
+		if firstElem.node.StartPoint().Row == lastElem.node.EndPoint().Row {
+			isSingleLine = true
+		}
+	}
+
+	// Extract common indentation
+	commonIndent := ""
+	for i := arr.magicIndex + 1; i < int(arr.array.ChildCount()); i++ {
+		child := arr.array.Child(i)
+		if child.Type() != "," && child.Type() != "comment" && child.Type() != "]" {
+			// Found first element
+			elemStart := child.StartByte()
+			lineStart := elemStart
+			for lineStart > 0 && content[lineStart-1] != '\n' {
+				lineStart--
+			}
+			if lineStart < elemStart {
+				commonIndent = string(content[lineStart:elemStart])
+			}
+			break
+		}
+	}
+
+	// Write everything up to and including the magic comment
+	for i := 0; i <= arr.magicIndex; i++ {
+		child := arr.array.Child(i)
+
+		// Write any whitespace before this child
+		if i == 0 {
+			result.Write(content[arr.array.StartByte():child.StartByte()])
+		} else {
+			prevChild := arr.array.Child(i - 1)
+			result.Write(content[prevChild.EndByte():child.StartByte()])
+		}
+
+		// Write the child itself
+		result.Write(content[child.StartByte():child.EndByte()])
+	}
+
+	// Write newline after magic comment (unless single line)
+	if arr.magicIndex+1 < int(arr.array.ChildCount()) && !isSingleLine {
+		result.WriteByte('\n')
+	}
+
+	// Write sorted elements
+	for i, elem := range sortedElems {
+		if isSingleLine {
+			// For single-line arrays, write minimal spacing
+			if i == 0 {
+				result.WriteByte('\n')
+				result.WriteString(commonIndent)
+			}
+		} else {
+			// Write any comments before this element
+			for _, commentNode := range elem.beforeNodes {
+				// Find whitespace before comment
+				if len(result.Bytes()) > 0 {
+					commentStart := commentNode.StartByte()
+					lineStart := commentStart
+					for lineStart > 0 && content[lineStart-1] != '\n' {
+						lineStart--
+					}
+					if lineStart < commentStart {
+						result.Write(content[lineStart:commentStart])
+					}
+				}
+				result.Write(content[commentNode.StartByte():commentNode.EndByte()])
+				result.WriteByte('\n')
+			}
+
+			// Use common indentation for all elements
+			result.WriteString(commonIndent)
+		}
+
+		// Write the element itself
+		result.Write(content[elem.node.StartByte():elem.node.EndByte()])
+
+		// Handle comma
+		if i < len(sortedElems)-1 {
+			if elem.hasComma && elem.commaNode != nil {
+				// Use original comma
+				result.Write(content[elem.commaNode.StartByte():elem.commaNode.EndByte()])
+			} else {
+				// Add comma if missing
+				result.WriteByte(',')
+			}
+
+			// For single-line arrays, add space after comma
+			if isSingleLine {
+				result.WriteByte(' ')
+			}
+		} else {
+			// Last element - check if original had trailing comma
+			originalLastElem := findOriginalLastArrayElement(arr)
+			if originalLastElem != nil && originalLastElem.hasComma {
+				result.WriteByte(',')
+			}
+		}
+
+		// Write inline comment if present
+		if elem.afterNode != nil {
+			// Since elements may have been reordered, we can't rely on original byte positions
+			// Just use a reasonable default spacing
+			result.WriteByte(' ')
+			result.Write(content[elem.afterNode.StartByte():elem.afterNode.EndByte()])
+		}
+
+		// Add newline if not last or if there's more content (and not single line)
+		if !isSingleLine && i < len(sortedElems)-1 {
+			result.WriteByte('\n')
+			// Add extra newline if with-new-line option is set
+			if arr.sortConfig.WithNewLine {
+				result.WriteByte('\n')
+			}
+		}
+	}
+
+	// Write closing bracket and any trailing content
+	closingBracketIdx := -1
+	for i := int(arr.array.ChildCount()) - 1; i >= 0; i-- {
+		child := arr.array.Child(i)
+		if child.Type() == "]" {
+			closingBracketIdx = i
+			break
+		}
+	}
+
+	if closingBracketIdx > 0 {
+		closingBracket := arr.array.Child(closingBracketIdx)
+
+		// Write any whitespace/newlines before closing bracket
+		originalSpacing := findOriginalArrayClosingSpacing(arr)
+		if originalSpacing != "" {
+			result.WriteString(originalSpacing)
+		} else {
+			result.WriteByte('\n')
+		}
+
+		result.Write(content[closingBracket.StartByte():closingBracket.EndByte()])
+	}
+
+	return result.Bytes()
+}
+
+func findOriginalLastArrayElement(arr arrayWithMagicComment) *arrayElement {
+	var lastElem *arrayElement
+
+	for i := arr.magicIndex + 1; i < int(arr.array.ChildCount()); i++ {
+		child := arr.array.Child(i)
+		if child.Type() != "," && child.Type() != "comment" && child.Type() != "]" {
+			lastElem = &arrayElement{
+				node: child,
+			}
+			// Check if followed by comma
+			if i+1 < int(arr.array.ChildCount()) {
+				next := arr.array.Child(i + 1)
+				if next.Type() == "," {
+					lastElem.hasComma = true
+					lastElem.commaNode = next
+				}
+			}
+		}
+	}
+
+	return lastElem
+}
+
+func findOriginalArrayClosingSpacing(arr arrayWithMagicComment) string {
+	// Just return a newline - we handle inline comments separately
+	// and don't want to duplicate them
 	return "\n"
 }

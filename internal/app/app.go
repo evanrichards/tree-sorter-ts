@@ -153,7 +153,7 @@ func processFilesParallel(files []string, config processor.Config) (bool, error)
 	close(resultChan)
 
 	// Collect results
-	stats := stats{
+	fileStats := stats{
 		totalFiles: len(files),
 	}
 	var needsSorting atomic.Bool
@@ -162,29 +162,30 @@ func processFilesParallel(files []string, config processor.Config) (bool, error)
 	for result := range resultChan {
 		if result.err != nil {
 			errors = append(errors, fmt.Errorf("%s: %w", result.file, result.err))
-			stats.errorFiles++
+			fileStats.errorFiles++
 			continue
 		}
 
-		stats.totalObjects += result.objectsFound
-		stats.objectsNeedSort += result.objectsNeedSort
+		fileStats.totalObjects += result.objectsFound
+		fileStats.objectsNeedSort += result.objectsNeedSort
 
 		if result.changed {
 			needsSorting.Store(true)
-			stats.filesNeedSort++
+			fileStats.filesNeedSort++
 
 			if config.Verbose {
-				if config.Write {
+				switch {
+				case config.Write:
 					fmt.Printf("✓ Sorted %s (%d objects)\n", result.file, result.objectsNeedSort)
-				} else if config.Check {
+				case config.Check:
 					fmt.Printf("✗ Needs sorting: %s (%d objects need sorting)\n", result.file, result.objectsNeedSort)
-				} else {
+				default:
 					// Dry-run mode
 					fmt.Printf("Would sort %s (%d objects need sorting)\n", result.file, result.objectsNeedSort)
 				}
 			}
 		} else {
-			stats.filesNoChanges++
+			fileStats.filesNoChanges++
 			if config.Verbose {
 				// Only print in check mode if objects were found
 				if config.Check && result.objectsFound > 0 {
@@ -197,49 +198,51 @@ func processFilesParallel(files []string, config processor.Config) (bool, error)
 	}
 
 	// Print summary for all modes when processing multiple files
-	if config.Verbose && stats.totalFiles > 1 {
+	if config.Verbose && fileStats.totalFiles > 1 {
 		fmt.Println("\n─────────────────────────────────────")
-		fmt.Printf("Total files:    %d\n", stats.totalFiles)
+		fmt.Printf("Total files:    %d\n", fileStats.totalFiles)
 
-		if config.Check {
-			fmt.Printf("No changes:     %d\n", stats.filesNoChanges)
-			if stats.filesNeedSort > 0 {
-				fmt.Printf("Need sorting:   %d ❌\n", stats.filesNeedSort)
+		switch {
+		case config.Check:
+			fmt.Printf("No changes:     %d\n", fileStats.filesNoChanges)
+			if fileStats.filesNeedSort > 0 {
+				fmt.Printf("Need sorting:   %d ❌\n", fileStats.filesNeedSort)
 			}
-		} else if config.Write {
-			fmt.Printf("Sorted:         %d\n", stats.filesNeedSort)
-			fmt.Printf("No changes:     %d\n", stats.filesNoChanges)
-		} else {
+		case config.Write:
+			fmt.Printf("Sorted:         %d\n", fileStats.filesNeedSort)
+			fmt.Printf("No changes:     %d\n", fileStats.filesNoChanges)
+		default:
 			// Dry-run mode
-			fmt.Printf("Would sort:     %d\n", stats.filesNeedSort)
-			fmt.Printf("No changes:     %d\n", stats.filesNoChanges)
+			fmt.Printf("Would sort:     %d\n", fileStats.filesNeedSort)
+			fmt.Printf("No changes:     %d\n", fileStats.filesNoChanges)
 		}
 
-		if stats.errorFiles > 0 {
-			fmt.Printf("Errors:         %d\n", stats.errorFiles)
+		if fileStats.errorFiles > 0 {
+			fmt.Printf("Errors:         %d\n", fileStats.errorFiles)
 		}
 
 		// Object-level summary
-		if stats.totalObjects > 0 {
+		if fileStats.totalObjects > 0 {
 			fmt.Printf("\nkeep-sorted objects:\n")
-			fmt.Printf("Total found:    %d\n", stats.totalObjects)
+			fmt.Printf("Total found:    %d\n", fileStats.totalObjects)
 
-			objectsSorted := stats.totalObjects - stats.objectsNeedSort
+			objectsSorted := fileStats.totalObjects - fileStats.objectsNeedSort
 			if config.Write {
 				// After writing, all objects are sorted
-				objectsSorted = stats.totalObjects
+				objectsSorted = fileStats.totalObjects
 			}
 
-			if config.Check {
+			switch {
+			case config.Check:
 				fmt.Printf("Sorted:         %d\n", objectsSorted)
-				if stats.objectsNeedSort > 0 {
-					fmt.Printf("Need sorting:   %d ❌\n", stats.objectsNeedSort)
+				if fileStats.objectsNeedSort > 0 {
+					fmt.Printf("Need sorting:   %d ❌\n", fileStats.objectsNeedSort)
 				}
-			} else if config.Write {
-				fmt.Printf("Sorted:         %d (was %d)\n", objectsSorted, objectsSorted-stats.objectsNeedSort)
-			} else {
+			case config.Write:
+				fmt.Printf("Sorted:         %d (was %d)\n", objectsSorted, objectsSorted-fileStats.objectsNeedSort)
+			default:
 				// Dry-run mode
-				fmt.Printf("Would sort:     %d\n", stats.objectsNeedSort)
+				fmt.Printf("Would sort:     %d\n", fileStats.objectsNeedSort)
 				fmt.Printf("Already sorted: %d\n", objectsSorted)
 			}
 		}
