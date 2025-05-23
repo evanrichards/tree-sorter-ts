@@ -13,7 +13,8 @@ import (
 
 // SortConfig contains configuration options from the magic comment
 type SortConfig struct {
-	WithNewLine bool
+	WithNewLine     bool
+	DeprecatedAtEnd bool
 }
 
 // Config holds the configuration for processing files
@@ -132,11 +133,28 @@ func parseSortConfig(commentText []byte) SortConfig {
 				configPart = configPart[:endIdx]
 			}
 
+			// Remove leading asterisks from each line (for multiline comments)
+			lines := strings.Split(configPart, "\n")
+			cleanedLines := make([]string, 0, len(lines))
+			for _, line := range lines {
+				// Trim spaces and asterisks from the beginning of each line
+				line = strings.TrimSpace(line)
+				line = strings.TrimPrefix(line, "*")
+				line = strings.TrimSpace(line)
+				if line != "" {
+					cleanedLines = append(cleanedLines, line)
+				}
+			}
+			configPart = strings.Join(cleanedLines, " ")
+
 			// Parse configuration options
 			options := strings.Fields(configPart)
 			for _, opt := range options {
-				if opt == "with-new-line" {
+				switch opt {
+				case "with-new-line":
 					config.WithNewLine = true
+				case "deprecated-at-end":
+					config.DeprecatedAtEnd = true
 				}
 			}
 		}
@@ -179,14 +197,25 @@ func findObjectsWithMagicCommentsAST(node *sitter.Node, content []byte) []object
 }
 
 type astProperty struct {
-	keyNode     *sitter.Node
-	valueNode   *sitter.Node
-	pairNode    *sitter.Node
-	key         string
-	beforeNodes []*sitter.Node // Comments before this property
-	afterNode   *sitter.Node   // Inline comment after property
-	hasComma    bool
-	commaNode   *sitter.Node
+	keyNode      *sitter.Node
+	valueNode    *sitter.Node
+	pairNode     *sitter.Node
+	key          string
+	beforeNodes  []*sitter.Node // Comments before this property
+	afterNode    *sitter.Node   // Inline comment after property
+	hasComma     bool
+	commaNode    *sitter.Node
+	isDeprecated bool // Whether this property has @deprecated annotation
+}
+
+func hasDeprecatedAnnotation(nodes []*sitter.Node, content []byte) bool {
+	for _, node := range nodes {
+		text := string(content[node.StartByte():node.EndByte()])
+		if strings.Contains(text, "@deprecated") {
+			return true
+		}
+	}
+	return false
 }
 
 func checkFormattingNeeded(obj objectWithMagicComment, properties []*astProperty, content []byte) bool {
@@ -246,13 +275,31 @@ func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 	// Check if already sorted
 	sorted := make([]*astProperty, len(properties))
 	copy(sorted, properties)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].key < sorted[j].key
-	})
+	
+	// Sort properties, considering deprecated-at-end flag
+	if obj.sortConfig.DeprecatedAtEnd {
+		sort.Slice(sorted, func(i, j int) bool {
+			// If one is deprecated and the other isn't, put non-deprecated first
+			if sorted[i].isDeprecated != sorted[j].isDeprecated {
+				return !sorted[i].isDeprecated
+			}
+			// Otherwise sort alphabetically
+			return sorted[i].key < sorted[j].key
+		})
+	} else {
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].key < sorted[j].key
+		})
+	}
 
 	alreadySorted := true
 	for i := range properties {
 		if properties[i].key != sorted[i].key {
+			alreadySorted = false
+			break
+		}
+		// For deprecated-at-end, also check if deprecated properties are in the right place
+		if obj.sortConfig.DeprecatedAtEnd && properties[i].isDeprecated != sorted[i].isDeprecated {
 			alreadySorted = false
 			break
 		}
@@ -294,6 +341,9 @@ func extractPropertiesAST(obj objectWithMagicComment, content []byte) []*astProp
 				beforeNodes: pendingComments,
 			}
 
+			// Check if this property has @deprecated annotation
+			prop.isDeprecated = hasDeprecatedAnnotation(pendingComments, content)
+
 			// Extract key and value
 			keyNode := child.ChildByFieldName("key")
 			valueNode := child.ChildByFieldName("value")
@@ -330,6 +380,14 @@ func extractPropertiesAST(obj objectWithMagicComment, content []byte) []*astProp
 				}
 			}
 			i = j - 1 // Update loop counter to skip processed nodes
+
+			// Also check inline comment for @deprecated
+			if !prop.isDeprecated && prop.afterNode != nil {
+				text := string(content[prop.afterNode.StartByte():prop.afterNode.EndByte()])
+				if strings.Contains(text, "@deprecated") {
+					prop.isDeprecated = true
+				}
+			}
 
 			properties = append(properties, prop)
 			pendingComments = nil // Reset comments

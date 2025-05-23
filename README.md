@@ -13,6 +13,7 @@ A Go CLI tool that automatically sorts TypeScript object literals marked with sp
 - 🔍 Dry-run mode by default (see changes before applying)
 - ✅ Check mode for CI/CD pipelines
 - 📐 Optional `with-new-line` formatting for extra spacing
+- 🚨 Optional `deprecated-at-end` to move `@deprecated` properties to the bottom
 
 ## Installation
 
@@ -108,6 +109,75 @@ const config = {
   beta: "second",
 
   zebra: "last",
+};
+```
+
+### Advanced: deprecated-at-end option
+
+Move properties with `@deprecated` annotations to the bottom of the object:
+
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted deprecated-at-end **/
+  activeFeature: true,
+  /** @deprecated Use newApiUrl instead */
+  oldApiUrl: "https://old.example.com",
+  newApiUrl: "https://api.example.com",
+  legacyMode: true, // @deprecated Will be removed in v2.0
+};
+```
+
+After sorting:
+
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted deprecated-at-end **/
+  activeFeature: true,
+  newApiUrl: "https://api.example.com",
+  legacyMode: true, // @deprecated Will be removed in v2.0
+  /** @deprecated Use newApiUrl instead */
+  oldApiUrl: "https://old.example.com",
+};
+```
+
+You can also combine it with `with-new-line`:
+
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted deprecated-at-end with-new-line **/
+  alpha: "first",
+
+  beta: "second",
+
+  /** @deprecated */
+  oldValue: "deprecated",
+};
+```
+
+### Multiline magic comments
+
+For better readability, you can split the magic comment across multiple lines:
+
+```typescript
+const config = {
+  /**
+   * tree-sorter-ts: keep-sorted
+   *   with-new-line
+   *   deprecated-at-end
+   */
+  activeFeature: true,
+  beta: "second",
+  /** @deprecated */
+  oldFeature: false,
+};
+
+// Also works without asterisks on each line:
+const config2 = {
+  /** tree-sorter-ts: keep-sorted
+      deprecated-at-end
+      with-new-line **/
+  gamma: true,
+  alpha: "first",
 };
 ```
 
