@@ -633,38 +633,8 @@ func reconstructObjectAST(obj objectWithMagicComment, sortedProps []*astProperty
 		// Use common indentation for all properties
 		result.WriteString(commonIndent)
 
-		// Write the property key and value
-		// Write key
-		if prop.keyNode != nil {
-			result.Write(content[prop.keyNode.StartByte():prop.keyNode.EndByte()])
-		}
-		
-		// Write colon (find it between key and value)
-		if prop.keyNode != nil && prop.valueNode != nil {
-			colonStart := prop.keyNode.EndByte()
-			colonEnd := prop.valueNode.StartByte()
-			// Find the colon in this range
-			colonBytes := content[colonStart:colonEnd]
-			for i, b := range colonBytes {
-				result.WriteByte(b)
-				if b == ':' {
-					// Write any whitespace after colon
-					for j := i + 1; j < len(colonBytes); j++ {
-						if colonBytes[j] == ' ' || colonBytes[j] == '\t' {
-							result.WriteByte(colonBytes[j])
-						} else {
-							break
-						}
-					}
-					break
-				}
-			}
-		}
-		
-		// Write value
-		if prop.valueNode != nil {
-			result.Write(content[prop.valueNode.StartByte():prop.valueNode.EndByte()])
-		}
+		// Write the property itself (preserving all formatting)
+		result.Write(content[prop.pairNode.StartByte():prop.pairNode.EndByte()])
 
 		// Handle comma
 		if i < len(sortedProps)-1 {
