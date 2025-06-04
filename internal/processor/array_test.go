@@ -538,6 +538,60 @@ const items = [
 ];`,
 		},
 		{
+			name: "sort array by preceding comments",
+			content: `
+const items = [
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	// B
+	"first",
+	/**
+	 * A
+	 */
+	"second",
+	// C
+	"third"
+];`,
+			wantSorted: `
+const items = [
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	/**
+	 * A
+	 */
+	"second",
+	// B
+	"first",
+	// C
+	"third"
+];`,
+		},
+		{
+			name: "sort array by mixed comment positions",
+			content: `
+const items = [
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	// Delta (before)
+	"item1",
+	"item2", // Beta (after)
+	/**
+	 * Alpha (before multiline)
+	 */
+	"item3",
+	"item4" /* Charlie (after block) */
+];`,
+			wantSorted: `
+const items = [
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	/**
+	 * Alpha (before multiline)
+	 */
+	"item3",
+	"item2", // Beta (after)
+	"item4", /* Charlie (after block) */
+	// Delta (before)
+	"item1"
+];`,
+		},
+		{
 			name: "already sorted by comment",
 			content: `
 const sorted = [
