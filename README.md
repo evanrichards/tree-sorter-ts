@@ -380,6 +380,88 @@ const mixed = [
 // Result: elements with 'id' first (sorted), then elements without 'id'
 ```
 
+### Sorting by comment content
+
+Both arrays and objects can be sorted by their associated comment content using the `sort-by-comment` option:
+
+```typescript
+const userIds = [
+  /** tree-sorter-ts: keep-sorted sort-by-comment **/
+  "u_8234", // Bob Smith
+  "u_9823", // Alice Johnson
+  "u_1234", // David Lee
+  "u_4521", // Carol White
+];
+```
+
+After sorting:
+```typescript
+const userIds = [
+  /** tree-sorter-ts: keep-sorted sort-by-comment **/
+  "u_9823", // Alice Johnson
+  "u_8234", // Bob Smith
+  "u_4521", // Carol White
+  "u_1234", // David Lee
+];
+```
+
+**Features:**
+- Works with inline comments (`// comment` or `/* comment */`)
+- Works with preceding comments (comments on lines before the element)
+- Supports multiline comments
+- Compatible with `deprecated-at-end` option
+- Cannot be used together with `key` option (will show an error)
+
+**Examples:**
+
+Preceding comments:
+```typescript
+const items = [
+  /** tree-sorter-ts: keep-sorted sort-by-comment **/
+  // B
+  "first",
+  /**
+   * A
+   */
+  "second",
+  // C
+  "third"
+];
+// Sorts to: second (A), first (B), third (C)
+```
+
+Mixed comment positions:
+```typescript
+const mixed = [
+  /** tree-sorter-ts: keep-sorted sort-by-comment **/
+  // Delta (before)
+  "item1",
+  "item2", // Beta (after)
+  /**
+   * Alpha (before multiline)
+   */
+  "item3",
+  "item4" /* Charlie (after block) */
+];
+// Sorts by: Alpha, Beta, Charlie, Delta
+```
+
+Objects with comment sorting:
+```typescript
+const config = {
+  /** tree-sorter-ts: keep-sorted sort-by-comment **/
+  // Production settings
+  prodUrl: "https://api.example.com",
+  // Development settings  
+  devUrl: "http://localhost:3000",
+  // Staging settings
+  stagingUrl: "https://staging.example.com",
+};
+// Sorts by: Development, Production, Staging
+```
+
+**Known limitation:** Object sorting with inline comments (after property values) currently has a bug where the last property may get a duplicated comment. As a workaround, use preceding comments for objects or use the default property-name sorting.
+
 ## Flags
 
 - `--check` - Check if files are sorted (exit 1 if not)
@@ -440,16 +522,91 @@ make test
 ## Development
 
 ### Project Structure
+
+The codebase follows a modular architecture with clear separation of concerns:
+
 ```
 tree-sorter-ts/
-├── cmd/tree-sorter-ts/     # CLI entry point
+├── cmd/tree-sorter-ts/         # CLI entry point
 ├── internal/
-│   ├── app/                # Application logic
-│   ├── processor/          # Core sorting logic
-│   └── fileutil/           # File utilities
-├── testdata/fixtures/      # Test files
-└── main.go                 # Root entry (for backward compatibility)
+│   ├── app/                    # Application coordination
+│   ├── fileutil/               # File system utilities
+│   ├── processor/              # Main processing logic
+│   │   ├── ast.go             # Legacy monolithic processor
+│   │   ├── processor.go       # New modular processor
+│   │   └── *_test.go          # Comprehensive test suite
+│   ├── config/                 # Configuration parsing
+│   │   └── sort_config.go     # Magic comment configuration
+│   ├── parser/                 # AST parsing utilities
+│   │   └── magic_comments.go  # Find sortable structures
+│   ├── sorting/                # Core sorting abstractions
+│   │   ├── interfaces/        # Core interfaces
+│   │   ├── strategies/        # Sorting strategies (plugin-based)
+│   │   │   ├── property_name.go   # Default alphabetical sorting
+│   │   │   ├── comment_content.go # Sort by comment content
+│   │   │   └── array_key.go       # Array key-based sorting
+│   │   ├── types/             # Type-specific implementations
+│   │   │   ├── arrays/        # Array sorting logic
+│   │   │   └── objects/       # Object sorting logic
+│   │   └── common/            # Shared utilities
+│   └── reconstruction/         # AST reconstruction
+│       ├── array_reconstructor.go  # Rebuild sorted arrays
+│       └── object_reconstructor.go # Rebuild sorted objects
+├── testdata/fixtures/          # Test files
+└── main.go                     # Root entry (for backward compatibility)
 ```
+
+### Architecture Overview
+
+The new modular architecture separates concerns into distinct packages:
+
+1. **Configuration (`config/`)** - Parses and validates magic comment options
+2. **Parser (`parser/`)** - Finds structures marked for sorting in the AST
+3. **Sorting (`sorting/`)** - Core sorting logic with plugin-based strategies
+4. **Reconstruction (`reconstruction/`)** - Rebuilds the AST with sorted content
+
+#### Key Design Patterns
+
+**Strategy Pattern**: Different sorting strategies (property-name, comment-content, array-key) implement a common interface, allowing easy extension:
+
+```go
+type SortStrategy interface {
+    ExtractKey(item SortableItem, content []byte) (string, error)
+    GetName() string
+}
+```
+
+**Factory Pattern**: Factories create appropriate strategies and reconstructors based on configuration:
+
+```go
+strategyFactory := strategies.NewFactory()
+strategy, err := strategyFactory.CreateStrategy(config)
+```
+
+**Interface-Driven Design**: Core interfaces allow different types (arrays, objects, constructors) to be handled uniformly:
+
+```go
+type Sortable interface {
+    Extract(node *sitter.Node, content []byte) ([]SortableItem, error)
+    Sort(items []SortableItem, strategy SortStrategy, deprecatedAtEnd bool, content []byte) ([]SortableItem, error)
+    CheckIfSorted(items []SortableItem, strategy SortStrategy, deprecatedAtEnd bool, content []byte) bool
+}
+```
+
+#### Processing Flow
+
+1. **Parse** - Tree-sitter parses TypeScript/TSX into an AST
+2. **Find** - Locate structures with magic comments
+3. **Extract** - Extract sortable items (properties, elements, parameters)
+4. **Sort** - Apply the appropriate sorting strategy
+5. **Reconstruct** - Rebuild the AST content with sorted items
+6. **Write** - Update the file with sorted content
+
+This architecture makes it easy to:
+- Add new sorting strategies
+- Support new structure types
+- Test individual components
+- Maintain and debug the codebase
 
 ### Building and Testing
 ```bash
@@ -513,25 +670,6 @@ make install
   }
   ```
 
-- [ ] **Sort by comment contents** - Support sorting elements based on inline or preceding comment contents
-  ```typescript
-  const userIds = [
-    /** tree-sorter-ts: keep-sorted sort-by-comment **/
-    "u_8234", // Bob Smith
-    "u_9823", // Alice Johnson
-    "u_1234", // David Lee
-    "u_4521", // Carol White
-  ];
-  
-  // Would sort to:
-  const userIds = [
-    /** tree-sorter-ts: keep-sorted sort-by-comment **/
-    "u_9823", // Alice Johnson
-    "u_8234", // Bob Smith
-    "u_4521", // Carol White
-    "u_1234", // David Lee
-  ];
-  ```
 
 ## License
 
