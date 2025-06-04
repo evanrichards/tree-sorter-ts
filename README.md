@@ -1,12 +1,13 @@
 # tree-sorter-ts
 
-A Go CLI tool that automatically sorts TypeScript object literals and arrays marked with special comments. It uses Tree-sitter for accurate AST parsing while preserving exact formatting, comments, and structure.
+A Go CLI tool that automatically sorts TypeScript object literals, arrays, and function parameters marked with special comments. It uses Tree-sitter for accurate AST parsing while preserving exact formatting, comments, and structure.
 
 ## Features
 
 - 🔧 Sorts object properties alphabetically
 - 📊 Sorts array elements with customizable sorting keys
-- 🎯 Only touches objects/arrays marked with `/** tree-sorter-ts: keep-sorted **/`
+- 🏗️ Sorts constructor/function parameters by name (ignoring modifiers)
+- 🎯 Only touches objects/arrays/parameters marked with `/** tree-sorter-ts: keep-sorted **/`
 - 💬 Preserves all comments (inline and block)
 - 🔑 Handles computed property keys like `[EnumName.VALUE]`
 - 📁 Processes files in parallel for performance
@@ -191,6 +192,84 @@ const config2 = {
   gamma: true,
   alpha: "first",
 };
+```
+
+### Sorting constructor parameters
+
+Constructor parameters (and function parameters) can be sorted alphabetically by parameter name, ignoring access modifiers:
+
+```typescript
+class UserService {
+  constructor(
+    /** tree-sorter-ts: keep-sorted **/
+    private readonly userRepository: UserRepository,
+    private readonly logger: Logger,
+    private readonly cache: CacheService,
+    private readonly eventBus: EventBus,
+  ) {}
+}
+```
+
+After running with `--write`, it becomes:
+
+```typescript
+class UserService {
+  constructor(
+    /** tree-sorter-ts: keep-sorted **/
+    private readonly cache: CacheService,
+    private readonly eventBus: EventBus,
+    private readonly logger: Logger,
+    private readonly userRepository: UserRepository,
+  ) {}
+}
+```
+
+**Features:**
+- Sorts by parameter name, ignoring modifiers like `private`, `readonly`, `public`, `protected`
+- Works with regular functions, arrow functions, methods, and constructors
+- Supports optional parameters (`param?: Type`)
+- Handles destructured parameters (`{ name }: { name: string }`)
+- Preserves parameter types and default values
+- Supports all sorting options (`with-new-line`, `deprecated-at-end`)
+
+**Examples:**
+
+Mixed access modifiers:
+```typescript
+class Service {
+  constructor(
+    /** tree-sorter-ts: keep-sorted **/
+    protected readonly zService: ZService,
+    public aService: AService,
+    private bService: BService,
+  ) {}
+}
+// Sorts to: aService, bService, zService
+```
+
+With comments and deprecated parameters:
+```typescript
+class Service {
+  constructor(
+    /** tree-sorter-ts: keep-sorted deprecated-at-end **/
+    private readonly newService: NewService,
+    /** @deprecated Use newService instead */
+    private readonly oldService: OldService,
+    private readonly activeService: ActiveService,
+  ) {}
+}
+// Sorts to: activeService, newService, then oldService (deprecated last)
+```
+
+Arrow functions and regular functions:
+```typescript
+const handler = (
+  /** tree-sorter-ts: keep-sorted **/
+  zParam: string,
+  aParam: number,
+  mParam: boolean,
+) => {}
+// Sorts to: aParam, mParam, zParam
 ```
 
 ### Sorting arrays
@@ -397,18 +476,6 @@ make install
   };
   ```
 
-- [ ] **Constructor argument sorting** - Support sorting constructor arguments in class definitions
-  ```typescript
-  class UserService {
-    constructor(
-      /** tree-sorter-ts: keep-sorted **/
-      private readonly userRepository: UserRepository,
-      private readonly logger: Logger,
-      private readonly cache: CacheService,
-      private readonly eventBus: EventBus,
-    ) {}
-  }
-  ```
 
 - [ ] **Class member sorting** - Sort class members including decorators and annotations
   ```typescript

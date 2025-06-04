@@ -61,27 +61,30 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 
 	rootNode := tree.RootNode()
 
-	// Find all objects and arrays containing magic comments
+	// Find all objects, arrays, and constructors containing magic comments
 	objects := findObjectsWithMagicCommentsAST(rootNode, content)
 	arrays := findArraysWithMagicCommentsAST(rootNode, content)
+	constructors := findConstructorsWithMagicCommentsAST(rootNode, content)
 
-	if len(objects) == 0 && len(arrays) == 0 {
+	if len(objects) == 0 && len(arrays) == 0 && len(constructors) == 0 {
 		return result, nil
 	}
 
-	result.ObjectsFound = len(objects) + len(arrays)
+	result.ObjectsFound = len(objects) + len(arrays) + len(constructors)
 
 	// Create a combined list of sortable items
 	type sortableItem struct {
-		startByte uint32
-		endByte   uint32
-		isArray   bool
-		objIndex  int
-		arrIndex  int
+		startByte     uint32
+		endByte       uint32
+		isArray       bool
+		isConstructor bool
+		objIndex      int
+		arrIndex      int
+		constrIndex   int
 	}
 
 	// Pre-allocate items slice
-	items := make([]sortableItem, 0, len(objects)+len(arrays))
+	items := make([]sortableItem, 0, len(objects)+len(arrays)+len(constructors))
 	for i, obj := range objects {
 		items = append(items, sortableItem{
 			startByte: obj.object.StartByte(),
@@ -98,6 +101,14 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 			arrIndex:  i,
 		})
 	}
+	for i, constr := range constructors {
+		items = append(items, sortableItem{
+			startByte:     constr.formalParams.StartByte(),
+			endByte:       constr.formalParams.EndByte(),
+			isConstructor: true,
+			constrIndex:   i,
+		})
+	}
 
 	// Process items from end to beginning
 	sort.Slice(items, func(i, j int) bool {
@@ -111,6 +122,11 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 	for _, item := range items {
 		if item.isArray {
 			_, wasChanged := sortArrayAST(arrays[item.arrIndex], content)
+			if wasChanged {
+				result.ObjectsNeedSort++
+			}
+		} else if item.isConstructor {
+			_, wasChanged := sortConstructorAST(constructors[item.constrIndex], content)
 			if wasChanged {
 				result.ObjectsNeedSort++
 			}
@@ -131,6 +147,8 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 
 			if item.isArray {
 				sortedContent, wasChanged = sortArrayAST(arrays[item.arrIndex], content)
+			} else if item.isConstructor {
+				sortedContent, wasChanged = sortConstructorAST(constructors[item.constrIndex], content)
 			} else {
 				sortedContent, wasChanged = sortObjectAST(objects[item.objIndex], content)
 			}
@@ -1214,5 +1232,441 @@ func findOriginalLastArrayElement(arr arrayWithMagicComment) *arrayElement {
 func findOriginalArrayClosingSpacing(arr arrayWithMagicComment) string {
 	// Just return a newline - we handle inline comments separately
 	// and don't want to duplicate them
+	return "\n"
+}
+
+// Constructor sorting functionality
+
+type constructorWithMagicComment struct {
+	formalParams *sitter.Node
+	magicComment *sitter.Node
+	magicIndex   int // Index of magic comment in children
+	sortConfig   SortConfig
+}
+
+func findConstructorsWithMagicCommentsAST(node *sitter.Node, content []byte) []constructorWithMagicComment {
+	var results []constructorWithMagicComment
+
+	var traverse func(*sitter.Node)
+	traverse = func(n *sitter.Node) {
+		if n.Type() == "formal_parameters" {
+			// Check children for magic comment
+			for i := 0; i < int(n.ChildCount()); i++ {
+				child := n.Child(i)
+				if child.Type() == "comment" {
+					text := content[child.StartByte():child.EndByte()]
+					if magicCommentRegex.Match(text) {
+						results = append(results, constructorWithMagicComment{
+							formalParams: n,
+							magicComment: child,
+							magicIndex:   i,
+							sortConfig:   parseSortConfig(text),
+						})
+						break
+					}
+				}
+			}
+		}
+
+		for i := 0; i < int(n.ChildCount()); i++ {
+			traverse(n.Child(i))
+		}
+	}
+
+	traverse(node)
+	return results
+}
+
+type constructorParam struct {
+	node         *sitter.Node // The required_parameter node
+	name         string       // Parameter name (from identifier)
+	beforeNodes  []*sitter.Node // Comments before this parameter
+	afterNode    *sitter.Node   // Inline comment after parameter
+	hasComma     bool
+	commaNode    *sitter.Node
+	isDeprecated bool
+}
+
+func sortConstructorAST(constr constructorWithMagicComment, content []byte) ([]byte, bool) {
+	// Extract parameters after magic comment
+	params := extractConstructorParamsAST(constr, content)
+
+	if len(params) <= 1 {
+		return nil, false
+	}
+
+	// Check if already sorted
+	sorted := make([]*constructorParam, len(params))
+	copy(sorted, params)
+
+	// Sort parameters, considering deprecated-at-end flag
+	if constr.sortConfig.DeprecatedAtEnd {
+		sort.Slice(sorted, func(i, j int) bool {
+			// If one is deprecated and the other isn't, put non-deprecated first
+			if sorted[i].isDeprecated != sorted[j].isDeprecated {
+				return !sorted[i].isDeprecated
+			}
+			// Otherwise sort alphabetically by parameter name
+			return sorted[i].name < sorted[j].name
+		})
+	} else {
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].name < sorted[j].name
+		})
+	}
+
+	alreadySorted := true
+	for i := range params {
+		if params[i].name != sorted[i].name {
+			alreadySorted = false
+			break
+		}
+		// For deprecated-at-end, also check if deprecated parameters are in the right place
+		if constr.sortConfig.DeprecatedAtEnd && params[i].isDeprecated != sorted[i].isDeprecated {
+			alreadySorted = false
+			break
+		}
+	}
+
+	// Even if already sorted, check if formatting needs to change
+	needsFormatting := false
+	if alreadySorted && len(params) > 1 {
+		needsFormatting = checkConstructorFormattingNeeded(constr, params, content)
+	}
+
+	if alreadySorted && !needsFormatting {
+		return nil, false
+	}
+
+	// Reconstruct the constructor with sorted parameters
+	return reconstructConstructorAST(constr, sorted, content), true
+}
+
+func extractConstructorParamsAST(constr constructorWithMagicComment, content []byte) []*constructorParam {
+	var params []*constructorParam
+	var pendingComments []*sitter.Node
+
+	// Start after magic comment
+	startIdx := constr.magicIndex + 1
+
+	for i := startIdx; i < int(constr.formalParams.ChildCount()); i++ {
+		child := constr.formalParams.Child(i)
+
+		switch child.Type() {
+		case "comment":
+			// Accumulate comments
+			pendingComments = append(pendingComments, child)
+
+		case "required_parameter", "optional_parameter":
+			param := &constructorParam{
+				node:        child,
+				beforeNodes: pendingComments,
+			}
+
+			// Check if this parameter has @deprecated annotation
+			param.isDeprecated = hasDeprecatedAnnotation(pendingComments, content)
+
+			// Extract parameter name from pattern field
+			patternNode := child.ChildByFieldName("pattern")
+			if patternNode != nil {
+				switch patternNode.Type() {
+				case "identifier":
+					// Simple parameter like: someParam: string
+					param.name = string(content[patternNode.StartByte():patternNode.EndByte()])
+				case "object_pattern":
+					// Destructured parameter like: { someParam }: { someParam: string }
+					// For sorting, use the first property name
+					for i := 0; i < int(patternNode.ChildCount()); i++ {
+						propChild := patternNode.Child(i)
+						if propChild.Type() == "shorthand_property_identifier_pattern" {
+							param.name = string(content[propChild.StartByte():propChild.EndByte()])
+							break
+						}
+					}
+				default:
+					// For other patterns (array destructuring, etc.), use the full text
+					param.name = string(content[patternNode.StartByte():patternNode.EndByte()])
+				}
+			}
+
+			// Check if followed by comma and/or inline comment
+			j := i + 1
+			continueLoop := true
+			lastNode := child // Track the last node for line comparison
+			for j < int(constr.formalParams.ChildCount()) && continueLoop {
+				next := constr.formalParams.Child(j)
+				switch next.Type() {
+				case ",":
+					param.hasComma = true
+					param.commaNode = next
+					lastNode = next
+					j++
+				case "comment":
+					// Check if it's on the same line as the parameter or comma
+					if next.StartPoint().Row == lastNode.EndPoint().Row {
+						param.afterNode = next
+						j++
+					} else {
+						continueLoop = false
+					}
+				default:
+					continueLoop = false
+				}
+			}
+			i = j - 1 // Update loop counter to skip processed nodes
+
+			// Also check inline comment for @deprecated
+			if !param.isDeprecated && param.afterNode != nil {
+				text := string(content[param.afterNode.StartByte():param.afterNode.EndByte()])
+				if strings.Contains(text, "@deprecated") {
+					param.isDeprecated = true
+				}
+			}
+
+			params = append(params, param)
+			pendingComments = nil // Reset comments
+
+		case ",":
+			// Standalone comma (shouldn't happen if we handle it above)
+			continue
+
+		case ")":
+			// End of parameters
+			break
+		}
+	}
+
+	return params
+}
+
+func checkConstructorFormattingNeeded(constr constructorWithMagicComment, params []*constructorParam, content []byte) bool {
+	// Check if there's an extra newline between parameters
+	for i := 0; i < len(params)-1; i++ {
+		param := params[i]
+		nextParam := params[i+1]
+
+		// Find the end of current parameter (including comma and inline comment)
+		endNode := param.node
+		if param.afterNode != nil {
+			endNode = param.afterNode
+		} else if param.commaNode != nil {
+			endNode = param.commaNode
+		}
+
+		// Count newlines between parameters
+		startByte := endNode.EndByte()
+		endByte := nextParam.node.StartByte()
+
+		// Handle beforeNodes of next parameter
+		if len(nextParam.beforeNodes) > 0 {
+			endByte = nextParam.beforeNodes[0].StartByte()
+		}
+
+		between := content[startByte:endByte]
+		newlineCount := 0
+		for _, b := range between {
+			if b == '\n' {
+				newlineCount++
+			}
+		}
+
+		// If with-new-line is set, we expect 2 newlines between parameters
+		expectedNewlines := 1
+		if constr.sortConfig.WithNewLine {
+			expectedNewlines = 2
+		}
+
+		if newlineCount != expectedNewlines {
+			return true
+		}
+	}
+
+	return false
+}
+
+func reconstructConstructorAST(constr constructorWithMagicComment, sortedParams []*constructorParam, content []byte) []byte {
+	var result bytes.Buffer
+
+	// Extract common indentation from first original parameter after magic comment
+	commonIndent := ""
+	for i := constr.magicIndex + 1; i < int(constr.formalParams.ChildCount()); i++ {
+		child := constr.formalParams.Child(i)
+		if child.Type() == "required_parameter" || child.Type() == "optional_parameter" {
+			// Found first parameter
+			paramStart := child.StartByte()
+			lineStart := paramStart
+			for lineStart > 0 && content[lineStart-1] != '\n' {
+				lineStart--
+			}
+			if lineStart < paramStart {
+				commonIndent = string(content[lineStart:paramStart])
+			}
+			break
+		}
+	}
+
+	// Write everything up to and including the magic comment
+	for i := 0; i <= constr.magicIndex; i++ {
+		child := constr.formalParams.Child(i)
+
+		// Write any whitespace before this child
+		if i == 0 {
+			result.Write(content[constr.formalParams.StartByte():child.StartByte()])
+		} else {
+			prevChild := constr.formalParams.Child(i - 1)
+			result.Write(content[prevChild.EndByte():child.StartByte()])
+		}
+
+		// Write the child itself
+		result.Write(content[child.StartByte():child.EndByte()])
+	}
+
+	// Write newline after magic comment
+	if constr.magicIndex+1 < int(constr.formalParams.ChildCount()) {
+		result.WriteByte('\n')
+	}
+
+	// Write sorted parameters
+	for i, param := range sortedParams {
+		// Write any comments before this parameter
+		for _, commentNode := range param.beforeNodes {
+			// Find whitespace before comment
+			if len(result.Bytes()) > 0 {
+				commentStart := commentNode.StartByte()
+				lineStart := commentStart
+				for lineStart > 0 && content[lineStart-1] != '\n' {
+					lineStart--
+				}
+				if lineStart < commentStart {
+					result.Write(content[lineStart:commentStart])
+				}
+			}
+			result.Write(content[commentNode.StartByte():commentNode.EndByte()])
+			result.WriteByte('\n')
+		}
+
+		// Use common indentation for all parameters
+		result.WriteString(commonIndent)
+
+		// Write the parameter itself (preserving all formatting)
+		result.Write(content[param.node.StartByte():param.node.EndByte()])
+
+		// Handle comma
+		if i < len(sortedParams)-1 {
+			if param.hasComma && param.commaNode != nil {
+				// Use original comma
+				result.Write(content[param.commaNode.StartByte():param.commaNode.EndByte()])
+			} else {
+				// Add comma if missing
+				result.WriteByte(',')
+			}
+		} else {
+			// Last parameter - check if original had trailing comma
+			originalLastParam := findOriginalLastConstructorParam(constr, content)
+			if originalLastParam != nil && originalLastParam.hasComma {
+				result.WriteByte(',')
+			}
+		}
+
+		// Write inline comment if present
+		if param.afterNode != nil {
+			result.WriteByte(' ')
+			result.Write(content[param.afterNode.StartByte():param.afterNode.EndByte()])
+		}
+
+		// Add newline if not last or if there's more content
+		if i < len(sortedParams)-1 {
+			result.WriteByte('\n')
+			// Add extra newline if with-new-line option is set
+			if constr.sortConfig.WithNewLine {
+				result.WriteByte('\n')
+			}
+		}
+	}
+
+	// Write closing parenthesis and any trailing content
+	closingParenIdx := -1
+	for i := int(constr.formalParams.ChildCount()) - 1; i >= 0; i-- {
+		child := constr.formalParams.Child(i)
+		if child.Type() == ")" {
+			closingParenIdx = i
+			break
+		}
+	}
+
+	if closingParenIdx > 0 {
+		closingParen := constr.formalParams.Child(closingParenIdx)
+
+		// Write any whitespace/newlines before closing parenthesis
+		originalSpacing := findOriginalConstructorClosingSpacing(constr, content)
+		if originalSpacing != "" {
+			result.WriteString(originalSpacing)
+		} else {
+			result.WriteByte('\n')
+		}
+
+		result.Write(content[closingParen.StartByte():closingParen.EndByte()])
+	}
+
+	return result.Bytes()
+}
+
+func findOriginalLastConstructorParam(constr constructorWithMagicComment, content []byte) *constructorParam {
+	// This function is only used to check if the original last parameter had a trailing comma
+	// We don't need to extract the full parameter info, just check for trailing comma
+	
+	// Find the last parameter node
+	var lastParamNode *sitter.Node
+	for i := constr.magicIndex + 1; i < int(constr.formalParams.ChildCount()); i++ {
+		child := constr.formalParams.Child(i)
+		if child.Type() == "required_parameter" || child.Type() == "optional_parameter" {
+			lastParamNode = child
+		}
+	}
+	
+	if lastParamNode == nil {
+		return nil
+	}
+	
+	// Check if there's a comma after the last parameter
+	foundLastParam := false
+	for i := 0; i < int(constr.formalParams.ChildCount()); i++ {
+		child := constr.formalParams.Child(i)
+		if child == lastParamNode {
+			foundLastParam = true
+			continue
+		}
+		if foundLastParam && child.Type() == "," {
+			return &constructorParam{hasComma: true}
+		}
+		if foundLastParam && (child.Type() == "required_parameter" || child.Type() == "optional_parameter") {
+			// Found another parameter, so the last one didn't have a trailing comma
+			break
+		}
+	}
+	
+	return &constructorParam{hasComma: false}
+}
+
+func findOriginalConstructorClosingSpacing(constr constructorWithMagicComment, content []byte) string {
+	// Find the last meaningful content (parameter, comma, or comment)
+	lastContentEnd := constr.magicComment.EndByte()
+
+	for i := int(constr.formalParams.ChildCount()) - 1; i > constr.magicIndex; i-- {
+		child := constr.formalParams.Child(i)
+		if child.Type() == "required_parameter" || child.Type() == "optional_parameter" || child.Type() == "," || child.Type() == "comment" {
+			lastContentEnd = child.EndByte()
+			break
+		}
+	}
+
+	// Find closing parenthesis
+	for i := int(constr.formalParams.ChildCount()) - 1; i >= 0; i-- {
+		child := constr.formalParams.Child(i)
+		if child.Type() == ")" {
+			return string(content[lastContentEnd:child.StartByte()])
+		}
+	}
+
 	return "\n"
 }
