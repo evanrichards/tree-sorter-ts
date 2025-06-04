@@ -392,6 +392,21 @@ const mixed = [
 ## Examples
 
 ### CI/CD Integration
+
+The `--check` mode provides clear, CI-friendly output that shows exactly which files need sorting:
+
+```bash
+# When files need sorting:
+$ tree-sorter-ts --check src/
+✗ src/config.ts needs sorting (3 items)
+✗ src/services/user.ts needs sorting (1 items)
+
+Processed 15 files
+❌ 2 file(s) need sorting
+   4 item(s) need to be sorted
+Error: some files are not properly sorted
+```
+
 ```yaml
 # GitHub Actions example
 - name: Install tree-sorter-ts
@@ -400,6 +415,8 @@ const mixed = [
 - name: Check TypeScript objects are sorted
   run: npx tree-sorter-ts --check src/
 ```
+
+The tool exits with code 1 and provides specific file paths when sorting is needed, making it easy to identify issues in CI logs.
 
 ### Pre-commit Hook
 ```bash
