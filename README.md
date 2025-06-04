@@ -625,6 +625,39 @@ make install
 
 ## TODO
 
+- [ ] **File-level declaration sorting** - Sort top-level declarations like `export const`, `const`, `function`, etc.
+  ```typescript
+  /** tree-sorter-ts: keep-sorted **/
+  export const CONFIG = { ... };
+  
+  const helper = () => { ... };
+  
+  export function processData() { ... }
+  
+  export const API_KEY = "...";
+  
+  const cache = new Map();
+  
+  // Would sort to (exports first, then by declaration name):
+  /** tree-sorter-ts: keep-sorted **/
+  export const API_KEY = "...";
+  
+  export const CONFIG = { ... };
+  
+  export function processData() { ... }
+  
+  const cache = new Map();
+  
+  const helper = () => { ... };
+  ```
+  Features to include:
+  - Sort by declaration name (including the modifier like `export`)
+  - Support all sorting options except `key` (not applicable)
+  - `with-new-line` for spacing between declarations
+  - `deprecated-at-end` for `@deprecated` declarations
+  - `sort-by-comment` for organizing by comment content
+  - Natural grouping: exports together, non-exports together
+
 - [ ] **Section sorting** - Support `start-sort` and `end-sort` comments for sorting subsections
   ```typescript
   const config = {
