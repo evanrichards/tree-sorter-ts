@@ -295,3 +295,32 @@ func TestWritePermissions(t *testing.T) {
 		t.Errorf("File permissions changed from %v to %v", originalInfo.Mode(), newInfo.Mode())
 	}
 }
+
+func TestSortByCommentErrorHandling(t *testing.T) {
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "test_error.ts")
+
+	content := `const items = [
+	/** tree-sorter-ts: keep-sorted key="name" sort-by-comment **/
+	{ name: "Charlie" }, // Comment
+	{ name: "Alice" }, // Another comment
+];`
+
+	// Write test file
+	err := os.WriteFile(testFile, []byte(content), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Test that ProcessFileAST returns an error
+	config := Config{Write: false}
+	_, err = ProcessFileAST(testFile, config)
+	if err == nil {
+		t.Fatal("Expected error when using both 'key' and 'sort-by-comment', but got none")
+	}
+
+	expectedErrorMsg := "invalid configuration: cannot use both 'key' and 'sort-by-comment' options together"
+	if !strings.Contains(err.Error(), expectedErrorMsg) {
+		t.Errorf("Expected error message to contain '%s', but got: %s", expectedErrorMsg, err.Error())
+	}
+}

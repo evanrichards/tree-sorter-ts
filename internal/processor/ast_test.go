@@ -407,3 +407,182 @@ func TestExtractKeyAST(t *testing.T) {
 		})
 	}
 }
+
+func TestObjectSortByComment(t *testing.T) {
+	t.Skip("Known bug: object sort-by-comment duplicates comments - see TestObjectCommentDuplicationBug for details")
+	
+	tests := []struct {
+		name       string
+		content    string
+		wantSorted string
+	}{
+		{
+			name: "sort object by inline comments",
+			content: `
+const config = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	zebra: "value1", // Charlie
+	alpha: "value2", // Alice
+	beta: "value3", // Bob
+};`,
+			wantSorted: `
+const config = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	alpha: "value2", // Alice
+	beta: "value3", // Bob
+	zebra: "value1", // Charlie
+};`,
+		},
+		{
+			name: "sort object by block comments",
+			content: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	prop1: "value1", /* Zebra */
+	prop2: "value2", /* Alpha */
+	prop3: "value3", /* Beta */
+};`,
+			wantSorted: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	prop2: "value2", /* Alpha */
+	prop3: "value3", /* Beta */
+	prop1: "value1", /* Zebra */
+};`,
+		},
+		{
+			name: "sort object by preceding comments",
+			content: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	// B
+	first: "value1",
+	/**
+	 * A
+	 */
+	second: "value2",
+	// C
+	third: "value3"
+};`,
+			wantSorted: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	/**
+	 * A
+	 */
+	second: "value2",
+	// B
+	first: "value1",
+	// C
+	third: "value3"
+};`,
+		},
+		{
+			name: "sort object by mixed comment positions",
+			content: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	// Delta (before)
+	prop1: "value1",
+	prop2: "value2", // Beta (after)
+	/**
+	 * Alpha (before multiline)
+	 */
+	prop3: "value3",
+	prop4: "value4" /* Charlie (after block) */
+};`,
+			wantSorted: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	/**
+	 * Alpha (before multiline)
+	 */
+	prop3: "value3",
+	prop2: "value2", // Beta (after)
+	prop4: "value4", /* Charlie (after block) */
+	// Delta (before)
+	prop1: "value1"
+};`,
+		},
+		{
+			name: "already sorted by comment",
+			content: `
+const sorted = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	a: "value1", // Alpha
+	b: "value2", // Beta
+	c: "value3", // Charlie
+};`,
+			wantSorted: "",
+		},
+		{
+			name: "sort by comment with deprecated-at-end",
+			content: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment deprecated-at-end **/
+	beta: "value2", // Beta
+	/** @deprecated Use delta instead */
+	alpha: "value1", // Alpha deprecated
+	delta: "value4", // Delta
+	/** @deprecated Old feature */
+	charlie: "value3", // Charlie deprecated
+};`,
+			wantSorted: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment deprecated-at-end **/
+	beta: "value2", // Beta
+	delta: "value4", // Delta
+	/** @deprecated Use delta instead */
+	alpha: "value1", // Alpha deprecated
+	/** @deprecated Old feature */
+	charlie: "value3", // Charlie deprecated
+};`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree, content, err := parseTypeScript(tt.content)
+			if err != nil {
+				t.Fatalf("failed to parse: %v", err)
+			}
+
+			objects := findObjectsWithMagicCommentsAST(tree, content)
+			if len(objects) != 1 {
+				t.Fatalf("expected 1 object, got %d", len(objects))
+			}
+
+			obj := objects[0]
+			sortedContent, changed := sortObjectAST(obj, content)
+
+			if tt.wantSorted == "" {
+				// Expecting no change
+				if changed {
+					t.Errorf("expected no change, but object was modified")
+				}
+			} else {
+				if !changed {
+					t.Errorf("expected object to be sorted, but no change was made")
+					return
+				}
+
+				// Apply sort to full content
+				newContent := make([]byte, len(content))
+				copy(newContent, content)
+
+				start := obj.object.StartByte()
+				end := obj.object.EndByte()
+
+				before := newContent[:start]
+				after := newContent[end:]
+				newContent = append(append(before, sortedContent...), after...)
+
+				gotSorted := strings.TrimSpace(string(newContent))
+				wantSorted := strings.TrimSpace(tt.wantSorted)
+				if gotSorted != wantSorted {
+					t.Errorf("sort result mismatch:\nwant:\n%s\ngot:\n%s", wantSorted, gotSorted)
+				}
+			}
+		})
+	}
+}

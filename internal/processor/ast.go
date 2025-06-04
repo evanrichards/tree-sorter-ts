@@ -16,6 +16,8 @@ type SortConfig struct {
 	WithNewLine     bool
 	DeprecatedAtEnd bool
 	Key             string // For array sorting
+	SortByComment   bool   // Sort by comment content
+	HasError        bool   // Indicates a validation error (e.g., key + sort-by-comment)
 }
 
 // Config holds the configuration for processing files
@@ -68,6 +70,23 @@ func ProcessFileAST(filePath string, config Config) (ProcessResult, error) {
 
 	if len(objects) == 0 && len(arrays) == 0 && len(constructors) == 0 {
 		return result, nil
+	}
+
+	// Check for configuration errors
+	for _, obj := range objects {
+		if obj.sortConfig.HasError {
+			return result, fmt.Errorf("invalid configuration: cannot use both 'key' and 'sort-by-comment' options together")
+		}
+	}
+	for _, arr := range arrays {
+		if arr.sortConfig.HasError {
+			return result, fmt.Errorf("invalid configuration: cannot use both 'key' and 'sort-by-comment' options together")
+		}
+	}
+	for _, constr := range constructors {
+		if constr.sortConfig.HasError {
+			return result, fmt.Errorf("invalid configuration: cannot use both 'key' and 'sort-by-comment' options together")
+		}
 	}
 
 	result.ObjectsFound = len(objects) + len(arrays) + len(constructors)
@@ -223,6 +242,8 @@ func parseSortConfig(commentText []byte) SortConfig {
 					config.WithNewLine = true
 				case "deprecated-at-end":
 					config.DeprecatedAtEnd = true
+				case "sort-by-comment":
+					config.SortByComment = true
 				default:
 					// Check for key="value" pattern
 					if strings.HasPrefix(opt, "key=") {
@@ -237,6 +258,11 @@ func parseSortConfig(commentText []byte) SortConfig {
 				}
 			}
 		}
+	}
+
+	// Validation: cannot use both key and sort-by-comment
+	if config.Key != "" && config.SortByComment {
+		config.HasError = true
 	}
 
 	return config
@@ -254,11 +280,12 @@ func findObjectsWithMagicCommentsAST(node *sitter.Node, content []byte) []object
 				if child.Type() == "comment" {
 					text := content[child.StartByte():child.EndByte()]
 					if magicCommentRegex.Match(text) {
+						config := parseSortConfig(text)
 						results = append(results, objectWithMagicComment{
 							object:       n,
 							magicComment: child,
 							magicIndex:   i,
-							sortConfig:   parseSortConfig(text),
+							sortConfig:   config,
 						})
 						break
 					}
@@ -280,6 +307,7 @@ type astProperty struct {
 	valueNode    *sitter.Node
 	pairNode     *sitter.Node
 	key          string
+	sortKey      string          // The key used for sorting (may be different from key when using sort-by-comment)
 	beforeNodes  []*sitter.Node // Comments before this property
 	afterNode    *sitter.Node   // Inline comment after property
 	hasComma     bool
@@ -343,12 +371,51 @@ func checkFormattingNeeded(obj objectWithMagicComment, properties []*astProperty
 	return false
 }
 
+func extractPropertySortKey(prop *astProperty, sortConfig SortConfig, content []byte) (string, error) {
+	// If sort-by-comment is enabled, use comment content
+	if sortConfig.SortByComment {
+		// Check for inline comment after property first
+		if prop.afterNode != nil {
+			text := extractCommentText(prop.afterNode, content)
+			if text != "" {
+				return text, nil
+			}
+		}
+		// Check for comment before property
+		if len(prop.beforeNodes) > 0 {
+			// Use the last comment before the property
+			for i := len(prop.beforeNodes) - 1; i >= 0; i-- {
+				text := extractCommentText(prop.beforeNodes[i], content)
+				if text != "" {
+					return text, nil
+				}
+			}
+		}
+		// If no comment found, return error (will sort to end)
+		return "", fmt.Errorf("no comment found for property")
+	}
+
+	// Otherwise, use the property name (existing behavior)
+	return prop.key, nil
+}
+
 func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 	// Extract properties after magic comment
 	properties := extractPropertiesAST(obj, content)
 
 	if len(properties) <= 1 {
 		return nil, false
+	}
+
+	// Extract sort keys for each property based on configuration
+	for _, prop := range properties {
+		sortKey, err := extractPropertySortKey(prop, obj.sortConfig, content)
+		if err != nil {
+			// For missing/invalid keys, mark with special prefix to sort last
+			prop.sortKey = "\uffff" + prop.key
+		} else {
+			prop.sortKey = sortKey
+		}
 	}
 
 	// Check if already sorted
@@ -363,17 +430,17 @@ func sortObjectAST(obj objectWithMagicComment, content []byte) ([]byte, bool) {
 				return !sorted[i].isDeprecated
 			}
 			// Otherwise sort alphabetically
-			return sorted[i].key < sorted[j].key
+			return sorted[i].sortKey < sorted[j].sortKey
 		})
 	} else {
 		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i].key < sorted[j].key
+			return sorted[i].sortKey < sorted[j].sortKey
 		})
 	}
 
 	alreadySorted := true
 	for i := range properties {
-		if properties[i].key != sorted[i].key {
+		if properties[i].sortKey != sorted[i].sortKey {
 			alreadySorted = false
 			break
 		}
@@ -697,11 +764,12 @@ func findArraysWithMagicCommentsAST(node *sitter.Node, content []byte) []arrayWi
 				if child.Type() == "comment" {
 					text := content[child.StartByte():child.EndByte()]
 					if magicCommentRegex.Match(text) {
+						config := parseSortConfig(text)
 						results = append(results, arrayWithMagicComment{
 							array:        n,
 							magicComment: child,
 							magicIndex:   i,
-							sortConfig:   parseSortConfig(text),
+							sortConfig:   config,
 						})
 						break
 					}
@@ -738,7 +806,7 @@ func sortArrayAST(arr arrayWithMagicComment, content []byte) (result []byte, cha
 
 	// Extract sort keys for each element
 	for _, elem := range elements {
-		key, err := extractElementKey(elem, arr.sortConfig.Key, content)
+		key, err := extractElementKey(elem, arr.sortConfig, content)
 		if err != nil {
 			// For missing/invalid keys, mark with special prefix to sort last
 			elem.sortKey = "\uffff" + string(content[elem.node.StartByte():elem.node.EndByte()])
@@ -880,9 +948,47 @@ func extractArrayElementsAST(arr arrayWithMagicComment, content []byte) []*array
 	return elements
 }
 
-func extractElementKey(elem *arrayElement, keyPath string, content []byte) (string, error) {
+func extractCommentText(commentNode *sitter.Node, content []byte) string {
+	if commentNode == nil {
+		return ""
+	}
+	// Extract comment text (remove comment markers)
+	text := string(content[commentNode.StartByte():commentNode.EndByte()])
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "//") {
+		text = strings.TrimSpace(text[2:])
+	} else if strings.HasPrefix(text, "/*") && strings.HasSuffix(text, "*/") {
+		text = strings.TrimSpace(text[2 : len(text)-2])
+	}
+	return text
+}
+
+func extractElementKey(elem *arrayElement, sortConfig SortConfig, content []byte) (string, error) {
+	// If sort-by-comment is enabled, use comment content
+	if sortConfig.SortByComment {
+		// Check for inline comment after element first
+		if elem.afterNode != nil {
+			text := extractCommentText(elem.afterNode, content)
+			if text != "" {
+				return text, nil
+			}
+		}
+		// Check for comment before element
+		if len(elem.beforeNodes) > 0 {
+			// Use the last comment before the element
+			for i := len(elem.beforeNodes) - 1; i >= 0; i-- {
+				text := extractCommentText(elem.beforeNodes[i], content)
+				if text != "" {
+					return text, nil
+				}
+			}
+		}
+		// If no comment found, return empty string (will sort to end)
+		return "", fmt.Errorf("no comment found for element")
+	}
+
 	// If no key specified, use the raw element text for sorting
-	if keyPath == "" {
+	if sortConfig.Key == "" {
 		// Use raw text to preserve quotes and maintain consistent sorting
 		return string(content[elem.node.StartByte():elem.node.EndByte()]), nil
 	}
@@ -891,10 +997,10 @@ func extractElementKey(elem *arrayElement, keyPath string, content []byte) (stri
 	switch elem.node.Type() {
 	case "object":
 		// For objects, extract the specified property
-		return extractObjectProperty(elem.node, keyPath, content)
+		return extractObjectProperty(elem.node, sortConfig.Key, content)
 	case "array":
 		// For tuples, extract by index
-		return extractArrayIndex(elem.node, keyPath, content)
+		return extractArrayIndex(elem.node, sortConfig.Key, content)
 	default:
 		// For scalars, use the value itself
 		return extractValueAsString(elem.node, content), nil
@@ -1256,11 +1362,12 @@ func findConstructorsWithMagicCommentsAST(node *sitter.Node, content []byte) []c
 				if child.Type() == "comment" {
 					text := content[child.StartByte():child.EndByte()]
 					if magicCommentRegex.Match(text) {
+						config := parseSortConfig(text)
 						results = append(results, constructorWithMagicComment{
 							formalParams: n,
 							magicComment: child,
 							magicIndex:   i,
-							sortConfig:   parseSortConfig(text),
+							sortConfig:   config,
 						})
 						break
 					}
