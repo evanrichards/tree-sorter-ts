@@ -767,12 +767,16 @@ const items = [
 //   }; // Charlie  <-- Duplicated comment appears here
 //
 // Root Cause:
-// The issue likely stems from the reconstruction logic not properly handling
-// the boundary between the last sorted property and the closing brace of the object.
-// The AST reconstruction may be incorrectly preserving or duplicating comment nodes.
+// The issue stems from the reconstruction logic not properly handling inline comments
+// (comments that appear after property values) during object sorting. The bug specifically
+// occurs when properties have inline comments - the last property gets an extra duplicated
+// comment. Preceding comments (before properties) work correctly.
 //
-// Status: Known issue, needs investigation
-// Workaround: Use property-name sorting for objects if comment duplication occurs
+// Affected: Objects with inline comments (// or /* */) after property values
+// Works fine: Objects with only preceding comments (before properties)
+//
+// Status: Known issue, needs investigation in object reconstruction logic
+// Workaround: Use property-name sorting for objects, or use preceding comments only
 func TestObjectCommentDuplicationBug(t *testing.T) {
 	t.Skip("Known bug: object sort-by-comment can duplicate comments - needs investigation")
 	

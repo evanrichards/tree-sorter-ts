@@ -451,6 +451,60 @@ const items = {
 };`,
 		},
 		{
+			name: "sort object by preceding comments",
+			content: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	// B
+	first: "value1",
+	/**
+	 * A
+	 */
+	second: "value2",
+	// C
+	third: "value3"
+};`,
+			wantSorted: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	/**
+	 * A
+	 */
+	second: "value2",
+	// B
+	first: "value1",
+	// C
+	third: "value3"
+};`,
+		},
+		{
+			name: "sort object by mixed comment positions",
+			content: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	// Delta (before)
+	prop1: "value1",
+	prop2: "value2", // Beta (after)
+	/**
+	 * Alpha (before multiline)
+	 */
+	prop3: "value3",
+	prop4: "value4" /* Charlie (after block) */
+};`,
+			wantSorted: `
+const items = {
+	/** tree-sorter-ts: keep-sorted sort-by-comment **/
+	/**
+	 * Alpha (before multiline)
+	 */
+	prop3: "value3",
+	prop2: "value2", // Beta (after)
+	prop4: "value4", /* Charlie (after block) */
+	// Delta (before)
+	prop1: "value1"
+};`,
+		},
+		{
 			name: "already sorted by comment",
 			content: `
 const sorted = {
