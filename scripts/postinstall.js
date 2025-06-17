@@ -139,15 +139,4 @@ async function install() {
   }
 }
 
-// Check if we need tar module
-try {
-  require('tar');
-} catch (e) {
-  console.log('Installing tar module...');
-  require('child_process').execSync('npm install tar', { 
-    stdio: 'inherit',
-    cwd: path.join(__dirname, '..')
-  });
-}
-
 install();
