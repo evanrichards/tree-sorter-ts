@@ -25,6 +25,11 @@ go.work.sum
 .env
 
 # Build output
-bin/
+bin/tree-sorter-ts
+bin/tree-sorter-ts.exe
 !/bin/tree-sorter-ts.js
+!/bin/tree-sorter-ts-wrapper.js
 /tree-sorter-ts
+
+# npm package build artifacts
+npm-package/
