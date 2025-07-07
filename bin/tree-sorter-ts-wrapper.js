@@ -8,7 +8,7 @@ const fs = require('fs');
 const PLATFORM_MAP = {
   darwin: 'darwin',
   linux: 'linux',
-  win32: 'win32'
+  win32: 'windows'  // Node.js uses 'win32' but our package uses 'windows'
 };
 
 const ARCH_MAP = {

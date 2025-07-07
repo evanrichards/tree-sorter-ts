@@ -50,7 +50,7 @@ jobs:
             runner: windows-latest
             goos: windows
             goarch: amd64
-            npm_os: win32
+            npm_os: windows
             npm_arch: x64
           # Windows ARM64 requires cross-compilation setup
           # Commenting out for now
@@ -188,7 +188,7 @@ jobs:
             'tree-sorter-ts-darwin-x64': version,
             'tree-sorter-ts-darwin-arm64': version,
             'tree-sorter-ts-linux-x64': version,
-            'tree-sorter-ts-win32-x64': version
+            'tree-sorter-ts-windows-x64': version
           };
           
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');
