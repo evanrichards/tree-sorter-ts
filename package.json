@@ -12,12 +12,9 @@
     "linter"
   ],
   "bin": {
-    "tree-sorter-ts": "./bin/tree-sorter-ts.js"
+    "tree-sorter-ts": "./bin/tree-sorter-ts-wrapper.js"
   },
-  "scripts": {
-    "postinstall": "node scripts/postinstall.js",
-    "preuninstall": "node scripts/preuninstall.js"
-  },
+  "scripts": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/evanrichards/tree-sorter-ts.git"
@@ -30,7 +27,6 @@
   "homepage": "https://github.com/evanrichards/tree-sorter-ts#readme",
   "files": [
     "bin/",
-    "scripts/",
     "README.md",
     "LICENSE"
   ],
@@ -45,8 +41,5 @@
   "cpu": [
     "x64",
     "arm64"
-  ],
-  "dependencies": {
-    "tar": "^6.2.0"
-  }
+  ]
 }

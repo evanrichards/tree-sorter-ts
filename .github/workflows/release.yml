@@ -20,31 +20,47 @@ jobs:
             runner: macos-13  # Intel Mac
             goos: darwin
             goarch: amd64
+            npm_os: darwin
+            npm_arch: x64
           - os: darwin
             arch: arm64
             runner: macos-latest  # Apple Silicon Mac
             goos: darwin
             goarch: arm64
+            npm_os: darwin
+            npm_arch: arm64
           - os: linux
             arch: amd64
             runner: ubuntu-latest
             goos: linux
             goarch: amd64
-          - os: linux
-            arch: arm64
-            runner: ubuntu-latest
-            goos: linux
-            goarch: arm64
+            npm_os: linux
+            npm_arch: x64
+          # Linux ARM64 requires cross-compilation setup or ARM runner
+          # Commenting out for now
+          # - os: linux
+          #   arch: arm64
+          #   runner: ubuntu-latest
+          #   goos: linux
+          #   goarch: arm64
+          #   npm_os: linux
+          #   npm_arch: arm64
           - os: windows
             arch: amd64
             runner: windows-latest
             goos: windows
             goarch: amd64
-          - os: windows
-            arch: arm64
-            runner: windows-latest
-            goos: windows
-            goarch: arm64
+            npm_os: windows
+            npm_arch: x64
+          # Windows ARM64 requires cross-compilation setup
+          # Commenting out for now
+          # - os: windows
+          #   arch: arm64
+          #   runner: windows-latest
+          #   goos: windows
+          #   goarch: arm64
+          #   npm_os: win32
+          #   npm_arch: arm64
 
     steps:
       - name: Checkout code
@@ -55,16 +71,58 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Build binary
         run: |
-          go build -o tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/tree-sorter-ts
+          go build -ldflags "-X github.com/evanrichards/tree-sorter-ts/internal/app.Version=${{ steps.version.outputs.VERSION }}" \
+            -o tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/tree-sorter-ts
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
 
-      - name: Create archive
+      - name: Create npm package
+        run: |
+          # Create package directory
+          mkdir -p npm-package
+          
+          # Copy binary
+          cp tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }} npm-package/
+          
+          # Generate package.json from template
+          sed -e "s/{{OS}}/${{ matrix.os }}/g" \
+              -e "s/{{ARCH}}/${{ matrix.arch }}/g" \
+              -e "s/{{NPM_OS}}/${{ matrix.npm_os }}/g" \
+              -e "s/{{NPM_ARCH}}/${{ matrix.npm_arch }}/g" \
+              -e "s/{{VERSION}}/${{ steps.version.outputs.VERSION }}/g" \
+              -e "s/{{EXT}}/${{ matrix.os == 'windows' && '.exe' || '' }}/g" \
+              npm/package.json.tmpl > npm-package/package.json
+        shell: bash
+
+      - name: Publish npm package
+        run: |
+          cd npm-package
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create archive for GitHub release
         run: |
           tar -czf tree-sorter-ts_${{ matrix.os }}_${{ matrix.arch }}.tar.gz tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }}
         if: matrix.os != 'windows'
 
-      - name: Create archive (Windows)
+      - name: Create archive for GitHub release (Windows)
         run: |
           tar -czf tree-sorter-ts_${{ matrix.os }}_${{ matrix.arch }}.tar.gz tree-sorter-ts.exe
         if: matrix.os == 'windows'
@@ -98,8 +156,8 @@ jobs:
           generate_release_notes: true
 
   publish-npm:
-    name: Publish to NPM
-    needs: release
+    name: Publish Main Package to NPM
+    needs: [build, release]
     runs-on: ubuntu-latest
 
     steps:
@@ -111,6 +169,31 @@ jobs:
         with:
           node-version: '18'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json with version and optionalDependencies
+        run: |
+          # Update version and add optionalDependencies for all platform packages
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const version = '${{ steps.version.outputs.VERSION }}';
+          
+          pkg.version = version;
+          pkg.optionalDependencies = {
+            'tree-sorter-ts-darwin-x64': version,
+            'tree-sorter-ts-darwin-arm64': version,
+            'tree-sorter-ts-linux-x64': version,
+            'tree-sorter-ts-windows-x64': version
+          };
+          
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');
+          "
 
       - name: Publish to NPM
         run: npm publish
