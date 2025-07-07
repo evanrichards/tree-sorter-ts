@@ -1,6 +1,6 @@
 {
   "name": "tree-sorter-ts",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "A CLI tool that automatically sorts TypeScript object literals marked with special comments",
   "keywords": [
     "typescript",
