@@ -184,10 +184,10 @@ jobs:
           const version = '${{ steps.version.outputs.VERSION }}';
           
           pkg.optionalDependencies = {
-            '@tree-sorter-ts/tree-sorter-ts-darwin-x64': version,
-            '@tree-sorter-ts/tree-sorter-ts-darwin-arm64': version,
-            '@tree-sorter-ts/tree-sorter-ts-linux-x64': version,
-            '@tree-sorter-ts/tree-sorter-ts-win32-x64': version
+            'tree-sorter-ts-darwin-x64': version,
+            'tree-sorter-ts-darwin-arm64': version,
+            'tree-sorter-ts-linux-x64': version,
+            'tree-sorter-ts-win32-x64': version
           };
           
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');

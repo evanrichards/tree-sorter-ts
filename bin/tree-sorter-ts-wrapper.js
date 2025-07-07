@@ -25,7 +25,7 @@ function getBinaryPath() {
     process.exit(1);
   }
 
-  const packageName = `@tree-sorter-ts/tree-sorter-ts-${platform}-${arch}`;
+  const packageName = `tree-sorter-ts-${platform}-${arch}`;
   const binaryName = `tree-sorter-ts${process.platform === 'win32' ? '.exe' : ''}`;
   
   try {
