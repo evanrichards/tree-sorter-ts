@@ -22,8 +22,8 @@ jobs:
     
     - name: Test version flag
       run: |
-        ./tree-sorter-ts --version
-        ./tree-sorter-ts --version | grep -E "tree-sorter-ts version (dev|[0-9]+\.[0-9]+\.[0-9]+)"
+        ./bin/tree-sorter-ts --version
+        ./bin/tree-sorter-ts --version | grep -E "tree-sorter-ts version (dev|[0-9]+\.[0-9]+\.[0-9]+)"
     
     - name: Test
       run: make test
