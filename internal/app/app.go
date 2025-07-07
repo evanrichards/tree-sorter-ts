@@ -13,6 +13,9 @@ import (
 	"github.com/evanrichards/tree-sorter-ts/internal/processor"
 )
 
+// Version is set during build time
+var Version = "dev"
+
 func Run() {
 	config := parseFlags()
 
@@ -25,6 +28,7 @@ func Run() {
 func parseFlags() processor.Config {
 	var config processor.Config
 	var extensions string
+	var showVersion bool
 
 	flag.BoolVar(&config.Check, "check", false, "Check if files are sorted (exit 1 if not)")
 	flag.BoolVar(&config.Write, "write", false, "Write changes to files (default: dry-run)")
@@ -32,8 +36,14 @@ func parseFlags() processor.Config {
 	flag.StringVar(&extensions, "extensions", ".ts,.tsx", "File extensions to process")
 	flag.IntVar(&config.Workers, "workers", 0, "Number of parallel workers (0 = number of CPUs)")
 	flag.BoolVar(&config.Verbose, "verbose", false, "Show detailed output")
+	flag.BoolVar(&showVersion, "version", false, "Show version information")
 
 	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("tree-sorter-ts version %s\n", Version)
+		os.Exit(0)
+	}
 
 	args := flag.Args()
 	if len(args) < 1 {

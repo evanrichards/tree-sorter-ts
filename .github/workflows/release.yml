@@ -86,7 +86,8 @@ jobs:
 
       - name: Build binary
         run: |
-          go build -o tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/tree-sorter-ts
+          go build -ldflags "-X github.com/evanrichards/tree-sorter-ts/internal/app.Version=${{ steps.version.outputs.VERSION }}" \
+            -o tree-sorter-ts${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/tree-sorter-ts
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}

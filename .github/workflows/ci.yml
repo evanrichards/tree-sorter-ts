@@ -20,6 +20,11 @@ jobs:
     - name: Build
       run: make build
     
+    - name: Test version flag
+      run: |
+        ./tree-sorter-ts --version
+        ./tree-sorter-ts --version | grep -E "tree-sorter-ts version (dev|[0-9]+\.[0-9]+\.[0-9]+)"
+    
     - name: Test
       run: make test
     
