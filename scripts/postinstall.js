@@ -21,11 +21,16 @@ const ARCH_MAP = {
   arm64: 'arm64'
 };
 
-async function getLatestRelease() {
+async function getRelease(version) {
   return new Promise((resolve, reject) => {
+    // If no version specified, get latest
+    const path = version 
+      ? `/repos/${REPO}/releases/tags/v${version}`
+      : `/repos/${REPO}/releases/latest`;
+    
     const options = {
       hostname: 'api.github.com',
-      path: `/repos/${REPO}/releases/latest`,
+      path: path,
       headers: {
         'User-Agent': 'tree-sorter-ts-installer'
       }
@@ -36,13 +41,28 @@ async function getLatestRelease() {
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
+          if (res.statusCode !== 200) {
+            reject(new Error(`Failed to fetch release${version ? ` v${version}` : ''}: ${res.statusCode}`));
+          } else {
+            resolve(JSON.parse(data));
+          }
         } catch (e) {
           reject(e);
         }
       });
     }).on('error', reject);
   });
+}
+
+function getInstalledVersion() {
+  try {
+    const packagePath = path.join(__dirname, '..', 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    return packageJson.version;
+  } catch (e) {
+    console.error('Could not read package.json:', e.message);
+    return null;
+  }
 }
 
 async function downloadFile(url, destPath) {
@@ -84,13 +104,15 @@ async function install() {
       fs.mkdirSync(binDir, { recursive: true });
     }
 
-    // Try to get latest release
+    // Get the installed package version
+    const installedVersion = getInstalledVersion();
     let downloadUrl;
-    let version = 'latest';
+    let version = installedVersion || 'latest';
     
     try {
-      const release = await getLatestRelease();
-      version = release.tag_name;
+      // Fetch the specific release for the installed version
+      const release = await getRelease(installedVersion);
+      version = release.tag_name || version;
       
       // Find the right asset
       const assetName = `tree-sorter-ts_${platform}_${arch}.tar.gz`;
@@ -98,14 +120,19 @@ async function install() {
       
       if (asset) {
         downloadUrl = asset.browser_download_url;
+      } else {
+        throw new Error(`Binary not found for ${platform}-${arch} in release ${version}`);
       }
     } catch (e) {
-      console.log('Could not fetch latest release, falling back to direct download...');
-    }
-
-    // Fallback to direct download if release API fails
-    if (!downloadUrl) {
-      downloadUrl = `https://github.com/${REPO}/releases/latest/download/tree-sorter-ts_${platform}_${arch}.tar.gz`;
+      if (installedVersion) {
+        console.error(`Failed to fetch release v${installedVersion}: ${e.message}`);
+        console.error('Please ensure this version has been released with binaries.');
+        process.exit(1);
+      } else {
+        console.log('Could not determine installed version, downloading latest release...');
+        // Fallback to latest release
+        downloadUrl = `https://github.com/${REPO}/releases/latest/download/tree-sorter-ts_${platform}_${arch}.tar.gz`;
+      }
     }
 
     const tempFile = path.join(binDir, 'temp.tar.gz');
@@ -130,7 +157,7 @@ async function install() {
       fs.chmodSync(binaryPath, 0o755);
     }
 
-    console.log(`Successfully installed tree-sorter-ts ${version}`);
+    console.log(`Successfully installed tree-sorter-ts ${installedVersion ? `v${installedVersion}` : version}`);
   } catch (error) {
     console.error('Installation failed:', error.message);
     console.error('You can manually download the binary from:');
