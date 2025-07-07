@@ -175,14 +175,15 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Update package.json with optionalDependencies
+      - name: Update package.json with version and optionalDependencies
         run: |
-          # Add optionalDependencies for all platform packages
+          # Update version and add optionalDependencies for all platform packages
           node -e "
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           const version = '${{ steps.version.outputs.VERSION }}';
           
+          pkg.version = version;
           pkg.optionalDependencies = {
             'tree-sorter-ts-darwin-x64': version,
             'tree-sorter-ts-darwin-arm64': version,
