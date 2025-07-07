@@ -36,13 +36,15 @@ jobs:
             goarch: amd64
             npm_os: linux
             npm_arch: x64
-          - os: linux
-            arch: arm64
-            runner: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            npm_os: linux
-            npm_arch: arm64
+          # Linux ARM64 requires cross-compilation setup or ARM runner
+          # Commenting out for now
+          # - os: linux
+          #   arch: arm64
+          #   runner: ubuntu-latest
+          #   goos: linux
+          #   goarch: arm64
+          #   npm_os: linux
+          #   npm_arch: arm64
           - os: windows
             arch: amd64
             runner: windows-latest
@@ -50,13 +52,15 @@ jobs:
             goarch: amd64
             npm_os: win32
             npm_arch: x64
-          - os: windows
-            arch: arm64
-            runner: windows-latest
-            goos: windows
-            goarch: arm64
-            npm_os: win32
-            npm_arch: arm64
+          # Windows ARM64 requires cross-compilation setup
+          # Commenting out for now
+          # - os: windows
+          #   arch: arm64
+          #   runner: windows-latest
+          #   goos: windows
+          #   goarch: arm64
+          #   npm_os: win32
+          #   npm_arch: arm64
 
     steps:
       - name: Checkout code
@@ -183,9 +187,7 @@ jobs:
             '@tree-sorter-ts/tree-sorter-ts-darwin-x64': version,
             '@tree-sorter-ts/tree-sorter-ts-darwin-arm64': version,
             '@tree-sorter-ts/tree-sorter-ts-linux-x64': version,
-            '@tree-sorter-ts/tree-sorter-ts-linux-arm64': version,
-            '@tree-sorter-ts/tree-sorter-ts-win32-x64': version,
-            '@tree-sorter-ts/tree-sorter-ts-win32-arm64': version
+            '@tree-sorter-ts/tree-sorter-ts-win32-x64': version
           };
           
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');
